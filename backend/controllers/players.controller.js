@@ -28,14 +28,18 @@ export async function createPlayer(request, reply) {
       'INSERT INTO players (username, group_name, game_id) VALUES ($1, $2, $3) RETURNING id, username, group_name, game_id, score, joined_at',
       [preparedUsername, preparedGroup || null, preparedGameId],
     )
-    reply.code(201).send({
+    const payload = {
       id: result.rows[0].id,
       username: result.rows[0].username,
       groupName: result.rows[0].group_name,
       gameId: result.rows[0].game_id,
       score: result.rows[0].score,
       joinedAt: result.rows[0].joined_at,
-    })
+    }
+    if (request.server?.io) {
+      request.server.io.emit('player:joined', payload)
+    }
+    reply.code(201).send(payload)
   } catch (error) {
     request.log.error(error)
     reply.code(500).send({ message: 'Ошибка сервера' })
@@ -89,14 +93,18 @@ export async function updatePlayerScore(request, reply) {
       reply.code(404).send({ message: 'Игрок не найден' })
       return
     }
-    reply.send({
+    const payload = {
       id: result.rows[0].id,
       username: result.rows[0].username,
       groupName: result.rows[0].group_name,
       gameId: result.rows[0].game_id,
       score: result.rows[0].score,
       joinedAt: result.rows[0].joined_at,
-    })
+    }
+    if (request.server?.io) {
+      request.server.io.emit('player:scoreUpdated', payload)
+    }
+    reply.send(payload)
   } catch (error) {
     request.log.error(error)
     reply.code(500).send({ message: 'Ошибка сервера' })
@@ -117,6 +125,9 @@ export async function deletePlayer(request, reply) {
     if (result.rowCount === 0) {
       reply.code(404).send({ message: 'Игрок не найден' })
       return
+    }
+    if (request.server?.io) {
+      request.server.io.emit('player:left', { id: playerId })
     }
     reply.send({ id: playerId })
   } catch (error) {

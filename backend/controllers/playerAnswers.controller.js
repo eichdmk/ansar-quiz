@@ -77,6 +77,19 @@ export async function submitAnswer(request, reply) {
       )
     }
     await client.query('COMMIT')
+    if (request.server?.io) {
+      request.server.io.emit('player:answer', {
+        playerId: preparedPlayerId,
+        questionId: preparedQuestionId,
+        answerId: preparedAnswerId,
+        isCorrect,
+      })
+      if (isCorrect) {
+        request.server.io.emit('player:scoreUpdated', {
+          playerId: preparedPlayerId,
+        })
+      }
+    }
     reply.code(201).send({
       id: insertResult.rows[0].id,
       playerId: preparedPlayerId,
