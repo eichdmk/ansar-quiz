@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useCallback, useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAppDispatch, useAppSelector, useAsyncStatus } from '../../app/hooks.js'
 import {
@@ -9,6 +9,7 @@ import {
   selectPlayerStatus,
 } from '../../features/player/playerSlice.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
+import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './PlayerJoin.module.css'
 
 const QRIcon = () => (
@@ -39,6 +40,49 @@ function PlayerJoin() {
     username: '',
     groupName: '',
   })
+
+  const avatarPalette = useMemo(
+    () => ['5A6FF1', 'FF7F57', '33B679', 'A65DEB', 'FFBA08', '00B4D8'],
+    [],
+  )
+
+  const pickAvatarColor = useCallback(
+    (value) => {
+      const source = value || ''
+      if (!source) {
+        return avatarPalette[0]
+      }
+      const hash = [...source].reduce((acc, char) => acc + char.charCodeAt(0), 0)
+      return avatarPalette[hash % avatarPalette.length]
+    },
+    [avatarPalette],
+  )
+
+  const getPlayerAvatarUrl = useCallback(
+    (profile) => {
+      if (!profile) {
+        return ''
+      }
+      const candidate =
+        profile.avatarUrl ||
+        profile.avatar ||
+        profile.photoUrl ||
+        profile.imageUrl ||
+        profile.image ||
+        null
+      if (candidate) {
+        return resolveImageUrl(candidate)
+      }
+      const nameValue = profile.username || profile.name || 'Player'
+      const background = pickAvatarColor(nameValue)
+      return `https://ui-avatars.com/api/?bold=true&name=${encodeURIComponent(
+        nameValue,
+      )}&background=${background}&color=ffffff&size=128`
+    },
+    [pickAvatarColor],
+  )
+
+  const playerAvatarUrl = useMemo(() => getPlayerAvatarUrl(player), [player, getPlayerAvatarUrl])
 
   useEffect(() => {
     if (player) {
@@ -88,6 +132,24 @@ function PlayerJoin() {
     dispatch(resetPlayer())
   }
 
+  const joinSteps = useMemo(
+    () => [
+      {
+        title: 'Получите код игры',
+        description: 'Ведущий показывает код, который нужно ввести.',
+      },
+      {
+        title: 'Заполните форму',
+        description: 'Имя и группа помогают ведущему быстро вас найти.',
+      },
+      {
+        title: 'Ожидайте старт',
+        description: 'После подключения вы увидите вопросы автоматически.',
+      },
+    ],
+    [],
+  )
+
   return (
     <div className={styles.page}>
       <div className={styles.card}>
@@ -95,9 +157,21 @@ function PlayerJoin() {
           <QRIcon />
           <h1>Подключение к игре</h1>
           <p>
-            Введите код игры, который показал преподаватель, а также своё имя и группу. После входа
+            Введите код игры, который показал ведущий, а также своё имя и группу. После входа
             вопросы будут появляться автоматически.
           </p>
+        </div>
+
+        <div className={styles.steps}>
+          {joinSteps.map((step, index) => (
+            <div key={step.title} className={styles.stepItem}>
+              <span className={styles.stepBadge}>{index + 1}</span>
+              <div className={styles.stepContent}>
+                <span className={styles.stepTitle}>{step.title}</span>
+                <span className={styles.stepDescription}>{step.description}</span>
+              </div>
+            </div>
+          ))}
         </div>
 
         <form className={styles.form} onSubmit={handleSubmit}>
@@ -154,13 +228,22 @@ function PlayerJoin() {
           <div className={styles.successBox}>
             <h2>Вы подключены!</h2>
             <p>
-              Ожидайте, пока преподаватель запустит вопрос. Вы будете видеть варианты ответов на этой
+              Ожидайте, пока ведущий запустит вопрос. Вы будете видеть варианты ответов на этой
               странице и сможете отвечать напрямую.
             </p>
-            <div className={styles.playerInfo}>
-              <span>{player.username}</span>
-              <span>{player.groupName || 'Без группы'}</span>
-              <span>ID игрока: {player.id}</span>
+            <div className={styles.playerProfile}>
+              <div className={styles.avatarRing}>
+                <img
+                  src={playerAvatarUrl}
+                  alt={player.username ? `Профиль ${player.username}` : 'Профиль игрока'}
+                  loading="lazy"
+                />
+              </div>
+              <div className={styles.playerInfo}>
+                <span className={styles.playerName}>{player.username}</span>
+                <span className={styles.playerGroup}>{player.groupName || 'Без группы'}</span>
+                <span className={styles.playerId}>ID игрока: {player.id}</span>
+              </div>
             </div>
             <button type="button" className={styles.secondaryButton} onClick={handleReset}>
               Сменить пользователя

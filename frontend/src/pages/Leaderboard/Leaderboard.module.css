@@ -119,10 +119,79 @@
   background: #ffffff;
   border: 1px solid rgba(33, 150, 243, 0.12);
   color: #153051;
+  position: relative;
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease,
+    border-color 0.35s ease,
+    background-color 0.35s ease;
+  will-change: transform, box-shadow, background-color;
 }
 
 .tableRow:nth-child(even) {
   background: rgba(243, 246, 255, 0.74);
+}
+
+.rowEnter {
+  animation: leaderboardFadeIn 0.55s ease forwards;
+}
+
+.rowUp {
+  animation: leaderboardRise 0.65s ease forwards;
+}
+
+.rowDown {
+  animation: leaderboardDrop 0.65s ease forwards;
+}
+
+@keyframes leaderboardFadeIn {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes leaderboardRise {
+  0% {
+    transform: translateY(16px);
+    box-shadow: 0 12px 22px rgba(33, 150, 243, 0.2);
+    border-color: rgba(33, 150, 243, 0.44);
+  }
+
+  60% {
+    transform: translateY(-4px);
+    box-shadow: 0 16px 24px rgba(33, 150, 243, 0.3);
+    background: rgba(233, 244, 255, 0.95);
+  }
+
+  100% {
+    transform: translateY(0);
+    box-shadow: 0 12px 18px rgba(15, 56, 95, 0.12);
+  }
+}
+
+@keyframes leaderboardDrop {
+  0% {
+    transform: translateY(-16px);
+    box-shadow: 0 16px 24px rgba(255, 167, 81, 0.28);
+    border-color: rgba(255, 152, 0, 0.35);
+  }
+
+  60% {
+    transform: translateY(4px);
+    box-shadow: 0 10px 18px rgba(33, 150, 243, 0.18);
+    background: rgba(255, 243, 224, 0.95);
+  }
+
+  100% {
+    transform: translateY(0);
+    box-shadow: 0 10px 16px rgba(15, 56, 95, 0.1);
+  }
 }
 
 .stateBox {

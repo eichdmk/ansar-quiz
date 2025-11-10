@@ -291,7 +291,7 @@ function Dashboard() {
                       onClick={() => handleStop(game)}
                       disabled={pendingGameId === game.id}
                     >
-                      Остановить
+                      Завершить
                     </button>
                   )}
                   {game.status === 'running' && (

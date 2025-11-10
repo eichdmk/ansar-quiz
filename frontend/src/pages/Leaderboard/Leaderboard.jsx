@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSocket } from '../../app/SocketProvider.jsx'
 import { fetchPlayers } from '../../api/players.js'
 import { fetchGames } from '../../api/games.js'
+import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './Leaderboard.module.css'
 
 function Leaderboard() {
@@ -289,15 +290,128 @@ function Leaderboard() {
     setCountdownValue(null)
   }, [selectedGameId])
 
+  const placementBadges = ['🥇', '🥈', '🥉']
+  const placementStyles = [
+    {
+      background: 'linear-gradient(135deg, #FFE259, #FFA751)',
+      color: '#3E2600',
+      boxShadow: '0 18px 32px rgba(255, 167, 81, 0.3)',
+      border: 'none',
+    },
+    {
+      background: 'linear-gradient(135deg, #DDE5FF, #A0B8FF)',
+      color: '#112963',
+      boxShadow: '0 16px 28px rgba(160, 184, 255, 0.26)',
+      border: 'none',
+    },
+    {
+      background: 'linear-gradient(135deg, #F6D0B1, #F79963)',
+      color: '#3F1F09',
+      boxShadow: '0 14px 24px rgba(247, 153, 99, 0.28)',
+      border: 'none',
+    },
+  ]
+  const avatarPalette = ['5A6FF1', 'FF7F57', '33B679', 'A65DEB', 'FFBA08', '00B4D8']
+
+  const getPlacementBadge = (index) => placementBadges[index] ?? `#${index + 1}`
+
+  const getRowStyle = (index) => placementStyles[index] ?? {}
+
+  const pickAvatarColor = (value) => {
+    const source = value || ''
+    if (!source) {
+      return avatarPalette[0]
+    }
+    const hash = [...source].reduce((acc, char) => acc + char.charCodeAt(0), 0)
+    return avatarPalette[hash % avatarPalette.length]
+  }
+
+  const getPlayerAvatarUrl = (player) => {
+    const candidate =
+      player?.avatarUrl ||
+      player?.avatar ||
+      player?.photoUrl ||
+      player?.imageUrl ||
+      player?.image ||
+      null
+    if (candidate) {
+      return resolveImageUrl(candidate)
+    }
+    const nameValue = player?.username || player?.name || 'Player'
+    const background = pickAvatarColor(nameValue)
+    return `https://ui-avatars.com/api/?bold=true&name=${encodeURIComponent(
+      nameValue,
+    )}&background=${background}&color=ffffff&size=128`
+  }
+
   const sortedPlayers = useMemo(() => {
     return [...players].sort((a, b) => b.score - a.score)
   }, [players])
+
+  const animationDuration = 650
+  const [rowAnimations, setRowAnimations] = useState({})
+  const previousOrderRef = useRef([])
+
+  useEffect(() => {
+    const previousOrder = previousOrderRef.current
+    const nextOrder = sortedPlayers.map((player) => player.id)
+    const updates = {}
+
+    nextOrder.forEach((playerId, index) => {
+      const previousIndex = previousOrder.indexOf(playerId)
+      if (previousIndex === -1) {
+        updates[playerId] = 'Enter'
+        return
+      }
+      if (previousIndex > index) {
+        updates[playerId] = 'Up'
+      } else if (previousIndex < index) {
+        updates[playerId] = 'Down'
+      }
+    })
+
+    let timeoutId = null
+
+    if (previousOrder.length === 0 && nextOrder.length > 0) {
+      nextOrder.forEach((playerId) => {
+        updates[playerId] = 'Enter'
+      })
+    }
+
+    if (Object.keys(updates).length > 0) {
+      setRowAnimations(updates)
+      timeoutId = setTimeout(() => {
+        setRowAnimations({})
+      }, animationDuration)
+    } else if (Object.keys(rowAnimations).length > 0) {
+      setRowAnimations({})
+    }
+
+    previousOrderRef.current = nextOrder
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
+  }, [sortedPlayers])
 
   return (
     <div className={styles.page}>
       <div className={styles.board}>
         <div className={styles.headerRow}>
-          <h1>Таблица лидеров</h1>
+          <h1>
+            <span role="img" aria-hidden="true">
+              🏆
+            </span>{' '}
+            Таблица лидеров
+          </h1>
+          <h2>
+            <span role="img" aria-hidden="true">
+              🎮
+            </span>{' '}
+            Код игры №{(selectedGameId && selectedGameId) || ''}
+          </h2>
           <div className={styles.gameSelector}>
             <label htmlFor="game-select">Выберите игру:</label>
             <select
@@ -352,17 +466,90 @@ function Leaderboard() {
         {selectedGameId && !loading && !error && sortedPlayers.length > 0 && (
           <div className={styles.tablePlaceholder}>
             <div className={styles.tableHeader}>
-              <span>#</span>
+              <span>Место</span>
               <span>Игрок</span>
               <span>Группа</span>
-              <span>Баллы</span>
+              <span style={{ display: 'flex', justifyContent: 'flex-end' }}>⚡ Баллы</span>
             </div>
             {sortedPlayers.map((player, index) => (
-              <div key={player.id} className={styles.tableRow}>
-                <span>{index + 1}</span>
-                <span>{player.username}</span>
-                <span>{player.groupName || '—'}</span>
-                <span>{player.score ?? 0}</span>
+              <div
+                key={player.id}
+                className={`${styles.tableRow} ${
+                  rowAnimations[player.id] ? styles[`row${rowAnimations[player.id]}`] : ''
+                }`}
+                style={{
+                  ...getRowStyle(index),
+                }}
+              >
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    fontWeight: 700,
+                    fontSize: index < 3 ? '20px' : '16px',
+                  }}
+                >
+                  {getPlacementBadge(index)}
+                </span>
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    fontWeight: index === 0 ? 700 : 600,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: '50%',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                      border: index < 3 ? '3px solid rgba(255, 255, 255, 0.65)' : '2px solid rgba(33, 150, 243, 0.18)',
+                      boxShadow:
+                        index < 3 ? '0 6px 14px rgba(0, 0, 0, 0.18)' : '0 4px 10px rgba(33, 150, 243, 0.12)',
+                      background: `#${pickAvatarColor(player?.username || player?.name || String(player?.id ?? '')).toUpperCase()}`,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <img
+                      src={getPlayerAvatarUrl(player)}
+                      alt={player.username ? `Аватар ${player.username}` : 'Аватар игрока'}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      loading="lazy"
+                    />
+                  </span>
+                  <span>
+                    {index === 0 ? (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span role="img" aria-hidden="true">
+                        </span>
+                        {player.username}
+                      </span>
+                    ) : (
+                      player.username
+                    )}
+                  </span>
+                </span>
+                <span style={{ fontWeight: 500 }}>{player.groupName || '—'}</span>
+                <span
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontWeight: 700,
+                  }}
+                >
+                  <span role="img" aria-hidden="true">
+                    {index === 0 ? '🔥' : index < 3 ? '⚡' : '🎯'}
+                  </span>
+                  <span>{player.score ?? 0}</span>
+                </span>
               </div>
             ))}
           </div>

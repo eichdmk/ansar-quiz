@@ -30,7 +30,7 @@ export async function createPlayer(request, reply) {
       return
     }
     if (game.rows[0].status === 'draft') {
-      reply.code(409).send({ message: 'Комната ещё не открыта преподавателем' })
+      reply.code(409).send({ message: 'Комната ещё не открыта ведущим' })
       return
     }
     const result = await pool.query(

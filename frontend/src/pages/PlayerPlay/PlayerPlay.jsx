@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../app/hooks.js'
 import { selectPlayer, resetPlayer } from '../../features/player/playerSlice.js'
@@ -39,6 +39,49 @@ function PlayerPlay() {
   const [questionClosed, setQuestionClosed] = useState(false)
   const [attemptLocked, setAttemptLocked] = useState(false)
   const [countdownValue, setCountdownValue] = useState(null)
+
+  const avatarPalette = useMemo(
+    () => ['5A6FF1', 'FF7F57', '33B679', 'A65DEB', 'FFBA08', '00B4D8'],
+    [],
+  )
+
+  const pickAvatarColor = useCallback(
+    (value) => {
+      const source = value || ''
+      if (!source) {
+        return avatarPalette[0]
+      }
+      const hash = [...source].reduce((acc, char) => acc + char.charCodeAt(0), 0)
+      return avatarPalette[hash % avatarPalette.length]
+    },
+    [avatarPalette],
+  )
+
+  const getPlayerAvatarUrl = useCallback(
+    (profile) => {
+      if (!profile) {
+        return ''
+      }
+      const candidate =
+        profile.avatarUrl ||
+        profile.avatar ||
+        profile.photoUrl ||
+        profile.imageUrl ||
+        profile.image ||
+        null
+      if (candidate) {
+        return resolveImageUrl(candidate)
+      }
+      const nameValue = profile.username || profile.name || 'Player'
+      const background = pickAvatarColor(nameValue)
+      return `https://ui-avatars.com/api/?bold=true&name=${encodeURIComponent(
+        nameValue,
+      )}&background=${background}&color=ffffff&size=128`
+    },
+    [pickAvatarColor],
+  )
+
+  const playerAvatarUrl = useMemo(() => getPlayerAvatarUrl(player), [player, getPlayerAvatarUrl])
 
   useEffect(() => {
     if (!player) {
@@ -90,7 +133,7 @@ function PlayerPlay() {
           })
         } else if (data.status === 'finished') {
           setLoading(false)
-          completeGame('Игра завершена преподавателем')
+          completeGame('Игра завершена ведущим')
         } else if (data.status === 'ready') {
           setLoading(false)
           setCurrentQuestion(null)
@@ -105,7 +148,7 @@ function PlayerPlay() {
           setCurrentQuestion(null)
           setQuestionIndex(null)
           setTotalQuestions(data?.total ?? 0)
-          setStatusMessage('Ожидайте приглашение от преподавателя')
+          setStatusMessage('Ожидайте приглашение от ведущего')
           setQuestionClosed(true)
           setAttemptLocked(true)
           setCountdownValue(null)
@@ -277,7 +320,7 @@ function PlayerPlay() {
         completeGame(
           response.awarded
             ? 'Вы завершили игру правильным ответом!'
-            : 'Игра завершена. Ожидайте преподавателя',
+            : 'Игра завершена. Ожидайте ведущего',
         )
       } else if (response.awarded && response.isCorrect) {
         setStatusMessage('Вы были первым! Балл начислен.')
@@ -323,12 +366,67 @@ function PlayerPlay() {
   }
 
   const activeQuestionNumber = questionIndex !== null ? questionIndex + 1 : null
+  const progressPercent =
+    activeQuestionNumber && totalQuestions > 0
+      ? Math.min(100, Math.round((activeQuestionNumber / totalQuestions) * 100))
+      : 0
+
+  const statusTone = (() => {
+    if (gameFinished) {
+      return { label: 'Игра завершена', variant: 'done' }
+    }
+    if (questionClosed) {
+      return { label: 'Вопрос закрыт', variant: 'closed' }
+    }
+    if (countdownValue !== null && countdownValue >= 0) {
+      return { label: 'Скоро старт', variant: 'countdown' }
+    }
+    if (currentQuestion) {
+      return { label: 'Вопрос в эфире', variant: 'active' }
+    }
+    return { label: 'Ожидаем запуск', variant: 'waiting' }
+  })()
+
+  const showPlayerBadge = player && statusTone.variant === 'waiting'
 
   return (
     <div className={styles.page}>
+      {showPlayerBadge && (
+        <div className={styles.playerBadgeWrapper}>
+          <div className={styles.playerBadge}>
+            <div className={styles.avatarRing}>
+              <img
+                src={playerAvatarUrl}
+                alt={player.username ? `Профиль ${player.username}` : 'Профиль игрока'}
+                loading="lazy"
+              />
+            </div>
+            <div className={styles.playerMeta}>
+              <span className={styles.playerName}>{player.username}</span>
+              <span className={styles.playerGroup}>{player.groupName || 'Без группы'}</span>
+              <span className={styles.playerId}>ID: {player.id}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={styles.card}>
         <LightningIcon />
+        <div className={`${styles.statusStrip} ${styles[`statusStrip_${statusTone.variant}`]}`}>
+          <span>{statusTone.label}</span>
+        </div>
         <h1>{statusMessage}</h1>
+
+        {totalQuestions > 0 && (
+          <div className={styles.progressBar}>
+            <div className={styles.progressTrack}>
+              <div className={styles.progressFill} style={{ width: `${progressPercent}%` }} />
+            </div>
+            <span className={styles.progressLabel}>
+              Вопрос {Math.min(activeQuestionNumber ?? 0, totalQuestions)} из {totalQuestions}
+            </span>
+          </div>
+        )}
 
         {countdownValue !== null && !gameFinished && (
           <div className={styles.countdownWrapper}>
@@ -374,13 +472,8 @@ function PlayerPlay() {
             >
               {sending ? 'Отправляем...' : 'Ответить'}
             </button>
-            {activeQuestionNumber !== null && (
-              <div className={styles.progress}>
-                Вопрос {Math.min(activeQuestionNumber, totalQuestions)} из {totalQuestions}
-              </div>
-            )}
             {questionClosed && (
-              <div className={styles.stateBox}>Ждём следующий вопрос от преподавателя…</div>
+              <div className={styles.stateBox}>Ждём следующий вопрос от ведущего</div>
             )}
           </div>
         )}
@@ -390,7 +483,7 @@ function PlayerPlay() {
             <span>{player.username}</span>
             <span>{player.groupName || 'Без группы'}</span>
             <span>ID игрока: {player.id}</span>
-            <span>Спасибо за участие! Можно вернуться к преподавателю.</span>
+            <span>Спасибо за участие!</span>
             <button type="button" className={styles.exitButton} onClick={handleExitGame}>
               Выйти из игры
             </button>
