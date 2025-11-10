@@ -1,0 +1,127 @@
+import pool from '../plugins/db.js'
+
+function sanitizeText(value) {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  return value.trim()
+}
+
+export async function createPlayer(request, reply) {
+  const { username, groupName, gameId } = request.body ?? {}
+  const preparedUsername = sanitizeText(username)
+  const preparedGroup = sanitizeText(groupName)
+  const preparedGameId = Number(gameId)
+  if (!preparedUsername || Number.isNaN(preparedGameId)) {
+    reply.code(400).send({ message: 'Некорректные данные' })
+    return
+  }
+  try {
+    const game = await pool.query('SELECT id FROM games WHERE id = $1', [
+      preparedGameId,
+    ])
+    if (game.rowCount === 0) {
+      reply.code(404).send({ message: 'Игра не найдена' })
+      return
+    }
+    const result = await pool.query(
+      'INSERT INTO players (username, group_name, game_id) VALUES ($1, $2, $3) RETURNING id, username, group_name, game_id, score, joined_at',
+      [preparedUsername, preparedGroup || null, preparedGameId],
+    )
+    reply.code(201).send({
+      id: result.rows[0].id,
+      username: result.rows[0].username,
+      groupName: result.rows[0].group_name,
+      gameId: result.rows[0].game_id,
+      score: result.rows[0].score,
+      joinedAt: result.rows[0].joined_at,
+    })
+  } catch (error) {
+    request.log.error(error)
+    reply.code(500).send({ message: 'Ошибка сервера' })
+  }
+}
+
+export async function listPlayers(request, reply) {
+  const gameIdFromParams = request.params?.gameId
+  const gameIdFromQuery = request.query?.gameId
+  const preparedGameId = Number(gameIdFromParams ?? gameIdFromQuery)
+  if (Number.isNaN(preparedGameId)) {
+    reply.code(400).send({ message: 'Не передан gameId' })
+    return
+  }
+  try {
+    const result = await pool.query(
+      'SELECT id, username, group_name, score, joined_at FROM players WHERE game_id = $1 ORDER BY score DESC, joined_at ASC',
+      [preparedGameId],
+    )
+    reply.send({
+      gameId: preparedGameId,
+      total: result.rowCount,
+      items: result.rows.map((row) => ({
+        id: row.id,
+        username: row.username,
+        groupName: row.group_name,
+        score: row.score,
+        joinedAt: row.joined_at,
+      })),
+    })
+  } catch (error) {
+    request.log.error(error)
+    reply.code(500).send({ message: 'Ошибка сервера' })
+  }
+}
+
+export async function updatePlayerScore(request, reply) {
+  const playerId = Number(request.params?.id)
+  const { score } = request.body ?? {}
+  const preparedScore = Number(score)
+  if (Number.isNaN(playerId) || Number.isNaN(preparedScore)) {
+    reply.code(400).send({ message: 'Некорректные данные' })
+    return
+  }
+  try {
+    const result = await pool.query(
+      'UPDATE players SET score = $1 WHERE id = $2 RETURNING id, username, group_name, game_id, score, joined_at',
+      [preparedScore, playerId],
+    )
+    if (result.rowCount === 0) {
+      reply.code(404).send({ message: 'Игрок не найден' })
+      return
+    }
+    reply.send({
+      id: result.rows[0].id,
+      username: result.rows[0].username,
+      groupName: result.rows[0].group_name,
+      gameId: result.rows[0].game_id,
+      score: result.rows[0].score,
+      joinedAt: result.rows[0].joined_at,
+    })
+  } catch (error) {
+    request.log.error(error)
+    reply.code(500).send({ message: 'Ошибка сервера' })
+  }
+}
+
+export async function deletePlayer(request, reply) {
+  const playerId = Number(request.params?.id)
+  if (Number.isNaN(playerId)) {
+    reply.code(400).send({ message: 'Некорректные данные' })
+    return
+  }
+  try {
+    const result = await pool.query(
+      'DELETE FROM players WHERE id = $1 RETURNING id',
+      [playerId],
+    )
+    if (result.rowCount === 0) {
+      reply.code(404).send({ message: 'Игрок не найден' })
+      return
+    }
+    reply.send({ id: playerId })
+  } catch (error) {
+    request.log.error(error)
+    reply.code(500).send({ message: 'Ошибка сервера' })
+  }
+}
+

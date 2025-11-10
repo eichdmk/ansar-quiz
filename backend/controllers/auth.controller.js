@@ -1,46 +1,123 @@
-import pool from "../plugins/db.js"
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import dotenv from 'dotenv'
 
+import pool from '../plugins/db.js'
+
 dotenv.config()
 
-
-export async function login(request, reply) {
-
-    const { username, password } = request.body
-
-    if (!username || !password) {
-        reply.status(400).send({ message: 'Введите логин и пароль' })
-        return
-    }
-
-    try {
-        let result = await pool.query('SELECT * FROM users WHERE username = $1', [username])
-
-        if (result.rows.length === 0) {
-            reply.status(400).send({ message: 'Неверные данные' })
-            return
-        }
-
-        const user = result.rows[0]
-
-        let isMatch = await bcrypt.compare(password, user.hash_password)
-
-        if (!isMatch) {
-            reply.status(400).send({ message: 'Неверные данные' })
-            return
-        }
-
-        let token = jwt.sign(
-            { id: user.id, name: user.username },
-            process.env,
-            { expiresIn: '30d' })
-
-        reply.send(token)
-    } catch (error) {
-        console.log("Ошибка:", error)
-        reply.status(500).send({message: 'Ошибка сервера'})
-    }
+function ensureJwtSecret() {
+  if (!process.env.JWT_SECRET) {
+    throw new Error(
+      'Отсутствует JWT_SECRET. Добавь его в файл .env (см. backend/.env.example)',
+    )
+  }
 }
 
+export async function setupAdmin(request, reply) {
+  const { username, password } = request.body ?? {}
+
+  if (!username || !password) {
+    return reply.code(400).send({
+      message: 'Нужно передать username и password',
+    })
+  }
+
+  try {
+    const existingAdmin = await pool.query(
+      'SELECT id FROM admin WHERE username = $1',
+      [username],
+    )
+
+    if (existingAdmin.rows.length > 0) {
+      return reply.code(409).send({
+        message: 'Такой администратор уже существует',
+      })
+    }
+
+    // 4. Хешируем пароль. Чем больше rounds, тем безопаснее, но медленнее.
+    const saltRounds = Number(process.env.BCRYPT_SALT_ROUNDS) || 10
+    const hash = await bcrypt.hash(password, saltRounds)
+
+    // 5. Сохраняем администратора в базе.
+    const insertResult = await pool.query(
+      `
+        INSERT INTO admin (username, hash_password)
+        VALUES ($1, $2)
+        RETURNING id, username
+      `,
+      [username, hash],
+    )
+
+    return reply.code(201).send({
+      message: 'Администратор создан',
+      admin: insertResult.rows[0],
+    })
+  } catch (error) {
+    request.log.error(error)
+    return reply.code(500).send({
+      message: 'Не удалось создать администратора',
+    })
+  }
+}
+
+// Контроллер входа администратора.
+// Здесь выдаём JWT, который фронтенд сохранит и будет отправлять в заголовках.
+export async function login(request, reply) {
+  const { username, password } = request.body ?? {}
+
+  if (!username || !password) {
+    return reply.code(400).send({
+      message: 'Введите логин и пароль',
+    })
+  }
+
+  try {
+    // 1. Ищем пользователя по логину.
+    const result = await pool.query(
+      'SELECT id, username, hash_password FROM admin WHERE username = $1',
+      [username],
+    )
+
+    if (result.rows.length === 0) {
+      return reply.code(400).send({
+        message: 'Неверный логин или пароль',
+      })
+    }
+
+    const admin = result.rows[0]
+
+    // 2. Сверяем хеш. compare сам достанет salt из хеша.
+    const isMatch = await bcrypt.compare(password, admin.hash_password)
+
+    if (!isMatch) {
+      return reply.code(400).send({
+        message: 'Неверный логин или пароль',
+      })
+    }
+
+    // 3. Генерируем JWT для дальнейшей авторизации.
+    ensureJwtSecret()
+    const token = jwt.sign(
+      {
+        id: admin.id,
+        username: admin.username,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '30d' },
+    )
+
+    return reply.send({
+      token,
+      admin: {
+        id: admin.id,
+        username: admin.username,
+      },
+    })
+  } catch (error) {
+    request.log.error(error)
+    return reply.code(500).send({
+      message: 'Сервер не смог обработать запрос',
+    })
+  }
+}
