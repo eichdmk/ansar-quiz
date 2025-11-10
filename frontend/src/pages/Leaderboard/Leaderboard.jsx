@@ -16,6 +16,7 @@ function Leaderboard() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [gameStatus, setGameStatus] = useState('waiting')
+  const [countdownValue, setCountdownValue] = useState(null)
 
   useEffect(() => {
     setGamesLoading(true)
@@ -92,6 +93,7 @@ function Leaderboard() {
         return
       }
       setGameStatus('running')
+      setCountdownValue(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -106,10 +108,56 @@ function Leaderboard() {
         return
       }
       setGameStatus('closed')
+      setCountdownValue(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
             ? { ...game, is_question_closed: true }
+            : game,
+        ),
+      )
+    }
+
+    const handleGameOpened = (payload) => {
+      if (!isSameGame(payload.gameId)) {
+        return
+      }
+      setCountdownValue(null)
+      setGameStatus('ready')
+      setGames((prev) =>
+        prev.map((game) =>
+          toNumber(game.id) === toNumber(payload.gameId)
+            ? { ...game, status: 'ready', is_question_closed: true }
+            : game,
+        ),
+      )
+    }
+
+    const handleCountdown = (payload) => {
+      if (!isSameGame(payload.gameId)) {
+        return
+      }
+      setCountdownValue(payload.value)
+      setGameStatus('countdown')
+      setGames((prev) =>
+        prev.map((game) =>
+          toNumber(game.id) === toNumber(payload.gameId)
+            ? { ...game, status: 'running', is_question_closed: true }
+            : game,
+        ),
+      )
+    }
+
+    const handleGameClosed = (payload) => {
+      if (!isSameGame(payload.gameId)) {
+        return
+      }
+      setCountdownValue(null)
+      setGameStatus('waiting')
+      setGames((prev) =>
+        prev.map((game) =>
+          toNumber(game.id) === toNumber(payload.gameId)
+            ? { ...game, status: 'draft', is_question_closed: true }
             : game,
         ),
       )
@@ -120,6 +168,7 @@ function Leaderboard() {
         return
       }
       setGameStatus('running')
+      setCountdownValue(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -148,6 +197,7 @@ function Leaderboard() {
             : game,
         ),
       )
+      setCountdownValue(null)
     }
 
     const handleGameFinished = (payload) => {
@@ -155,6 +205,7 @@ function Leaderboard() {
         return
       }
       setGameStatus('finished')
+      setCountdownValue(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -169,6 +220,9 @@ function Leaderboard() {
     socket.on('player:scoreUpdated', handleScoreUpdated)
     socket.on('game:questionOpened', handleQuestionOpened)
     socket.on('game:questionClosed', handleQuestionClosed)
+    socket.on('game:opened', handleGameOpened)
+    socket.on('game:countdown', handleCountdown)
+    socket.on('game:closed', handleGameClosed)
     socket.on('game:started', handleGameStarted)
     socket.on('game:stopped', handleGameStopped)
     socket.on('game:finished', handleGameFinished)
@@ -183,6 +237,9 @@ function Leaderboard() {
       socket.off('player:scoreUpdated', handleScoreUpdated)
       socket.off('game:questionOpened', handleQuestionOpened)
       socket.off('game:questionClosed', handleQuestionClosed)
+      socket.off('game:opened', handleGameOpened)
+      socket.off('game:countdown', handleCountdown)
+      socket.off('game:closed', handleGameClosed)
       socket.off('game:started', handleGameStarted)
       socket.off('game:stopped', handleGameStopped)
       socket.off('game:finished', handleGameFinished)
@@ -209,19 +266,28 @@ function Leaderboard() {
 
   useEffect(() => {
     if (!selectedGameId) {
+      setGameStatus('waiting')
+      return
+    }
+    if (countdownValue !== null) {
+      setGameStatus('countdown')
       return
     }
     const game = games.find((item) => item.id === selectedGameId)
-    if (game) {
-      if (game.status === 'running' && game.is_question_closed) {
-        setGameStatus('closed')
-      } else {
-        setGameStatus(game.status ?? 'waiting')
-      }
-    } else {
+    if (!game) {
       setGameStatus('waiting')
+      return
     }
-  }, [games, selectedGameId])
+    if (game.status === 'running' && game.is_question_closed) {
+      setGameStatus('closed')
+    } else {
+      setGameStatus(game.status ?? 'waiting')
+    }
+  }, [games, selectedGameId, countdownValue])
+
+  useEffect(() => {
+    setCountdownValue(null)
+  }, [selectedGameId])
 
   const sortedPlayers = useMemo(() => {
     return [...players].sort((a, b) => b.score - a.score)
@@ -260,6 +326,16 @@ function Leaderboard() {
           <div className={styles.stateBox}>Выберите игру из списка выше</div>
         )}
 
+        {gameStatus === 'ready' && (
+          <div className={styles.stateBanner}>
+            Комната открыта. Игроки могут подключаться.
+          </div>
+        )}
+        {gameStatus === 'countdown' && countdownValue !== null && (
+          <div className={styles.countdownBanner}>
+            Старт через {countdownValue > 0 ? countdownValue : 'старт!'}
+          </div>
+        )}
         {gameStatus === 'finished' && (
           <div className={styles.stateBanner}>Игра завершена</div>
         )}

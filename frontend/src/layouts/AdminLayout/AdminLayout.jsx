@@ -31,7 +31,7 @@ function AdminLayout() {
     <div className={styles.wrap}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <LogoIcon />
+          <img className={styles.logoImage} src="/logo.png" alt="" />
           <div className={styles.brandInfo}>
             <span className={styles.brandTitle}>Ansar Quiz</span>
             <span className={styles.brandSubtitle}>панель администратора</span>
@@ -49,12 +49,12 @@ function AdminLayout() {
             Квизы
           </NavLink>
           <NavLink
-            to="/admin/players"
+            to="/admin/history"
             className={({ isActive }) =>
               isActive ? `${styles.navLink} ${styles.active}` : styles.navLink
             }
           >
-            Участники
+            История игр
           </NavLink>
           <NavLink
             to="/admin/leaderboard"

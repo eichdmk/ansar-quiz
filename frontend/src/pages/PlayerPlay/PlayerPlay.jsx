@@ -38,6 +38,7 @@ function PlayerPlay() {
   const [sending, setSending] = useState(false)
   const [questionClosed, setQuestionClosed] = useState(false)
   const [attemptLocked, setAttemptLocked] = useState(false)
+  const [countdownValue, setCountdownValue] = useState(null)
 
   useEffect(() => {
     if (!player) {
@@ -59,6 +60,7 @@ function PlayerPlay() {
     setLoading(false)
     setQuestionClosed(Boolean(payload.isClosed))
     setAttemptLocked(Boolean(payload.isClosed))
+    setCountdownValue(null)
   }, [])
 
   const completeGame = useCallback((message) => {
@@ -69,6 +71,7 @@ function PlayerPlay() {
     setSelectedAnswer(null)
     setQuestionClosed(true)
     setAttemptLocked(true)
+    setCountdownValue(null)
   }, [])
 
   const loadCurrentState = useCallback(() => {
@@ -88,6 +91,24 @@ function PlayerPlay() {
         } else if (data.status === 'finished') {
           setLoading(false)
           completeGame('Игра завершена преподавателем')
+        } else if (data.status === 'ready') {
+          setLoading(false)
+          setCurrentQuestion(null)
+          setQuestionIndex(null)
+          setTotalQuestions(data?.total ?? 0)
+          setStatusMessage('Комната открыта. Ожидайте старт')
+          setQuestionClosed(true)
+          setAttemptLocked(true)
+          setCountdownValue(null)
+        } else if (data.status === 'draft') {
+          setLoading(false)
+          setCurrentQuestion(null)
+          setQuestionIndex(null)
+          setTotalQuestions(data?.total ?? 0)
+          setStatusMessage('Ожидайте приглашение от преподавателя')
+          setQuestionClosed(true)
+          setAttemptLocked(true)
+          setCountdownValue(null)
         } else {
           setLoading(false)
           setCurrentQuestion(null)
@@ -96,6 +117,7 @@ function PlayerPlay() {
           setStatusMessage('Ожидайте запуск игры')
           setQuestionClosed(Boolean(data?.isClosed))
           setAttemptLocked(Boolean(data?.isClosed))
+          setCountdownValue(null)
         }
       })
       .catch((err) => {
@@ -125,6 +147,55 @@ function PlayerPlay() {
       }
     }
 
+    const handleGameOpened = (payload) => {
+      if (payload.gameId !== player.gameId) {
+        return
+      }
+      if (typeof payload.total === 'number') {
+        setTotalQuestions(payload.total)
+      }
+      setCurrentQuestion(null)
+      setQuestionIndex(null)
+      setStatusMessage('Комната открыта. Ожидайте старт')
+      setCountdownValue(null)
+      setSelectedAnswer(null)
+      setQuestionClosed(true)
+      setAttemptLocked(true)
+      setGameFinished(false)
+    }
+
+    const handleCountdown = (payload) => {
+      if (payload.gameId !== player.gameId) {
+        return
+      }
+      setCountdownValue(payload.value)
+      if (payload.value > 0) {
+        setStatusMessage(`Старт через ${payload.value}`)
+      } else {
+        setStatusMessage('Поехали!')
+      }
+      setCurrentQuestion(null)
+      setQuestionIndex(null)
+      setSelectedAnswer(null)
+      setQuestionClosed(true)
+      setAttemptLocked(true)
+      setGameFinished(false)
+    }
+
+    const handleGameClosed = (payload) => {
+      if (payload.gameId !== player.gameId) {
+        return
+      }
+      setCountdownValue(null)
+      setStatusMessage('Комната закрыта. Ожидайте приглашение')
+      setCurrentQuestion(null)
+      setQuestionIndex(null)
+      setSelectedAnswer(null)
+      setGameFinished(false)
+      setQuestionClosed(true)
+      setAttemptLocked(true)
+    }
+
     const handleQuestionClosed = (payload) => {
       if (payload.gameId !== player.gameId) {
         return
@@ -132,6 +203,7 @@ function PlayerPlay() {
       setQuestionClosed(true)
       setSelectedAnswer(null)
       setAttemptLocked(true)
+      setCountdownValue(null)
       if (payload.winner?.id === player.id) {
         setStatusMessage('Вы были первым! Балл начислен.')
       } else {
@@ -150,8 +222,9 @@ function PlayerPlay() {
           setQuestionIndex(null)
           setSelectedAnswer(null)
           setGameFinished(false)
-          setQuestionClosed(false)
-          setAttemptLocked(false)
+          setQuestionClosed(true)
+          setAttemptLocked(true)
+          setCountdownValue(null)
         }
       }
     }
@@ -160,6 +233,9 @@ function PlayerPlay() {
     socket.on('game:finished', handleGameFinished)
     socket.on('game:questionClosed', handleQuestionClosed)
     socket.on('game:started', handleGameStarted)
+    socket.on('game:opened', handleGameOpened)
+    socket.on('game:countdown', handleCountdown)
+    socket.on('game:closed', handleGameClosed)
     if (!socket.connected) {
       socket.connect()
     }
@@ -169,6 +245,9 @@ function PlayerPlay() {
       socket.off('game:finished', handleGameFinished)
       socket.off('game:questionClosed', handleQuestionClosed)
       socket.off('game:started', handleGameStarted)
+      socket.off('game:opened', handleGameOpened)
+      socket.off('game:countdown', handleCountdown)
+      socket.off('game:closed', handleGameClosed)
     }
   }, [socket, player, applyQuestion, completeGame])
 
@@ -251,6 +330,14 @@ function PlayerPlay() {
         <LightningIcon />
         <h1>{statusMessage}</h1>
 
+        {countdownValue !== null && !gameFinished && (
+          <div className={styles.countdownWrapper}>
+            <span className={styles.countdownNumber}>
+              {countdownValue > 0 ? countdownValue : 'Старт!'}
+            </span>
+          </div>
+        )}
+
         {loading && <div className={styles.stateBox}>Загружаем вопросы…</div>}
         {error && !loading && <div className={styles.stateBox}>{error}</div>}
 
@@ -271,7 +358,7 @@ function PlayerPlay() {
                     selectedAnswer === answer.id ? styles.answerSelected : ''
                   }`}
                   onClick={() => handleSelectAnswer(answer.id)}
-                  disabled={sending}
+                  disabled={sending || questionClosed || attemptLocked}
                 >
                   {answer.text}
                 </button>

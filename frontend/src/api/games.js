@@ -5,6 +5,26 @@ export const fetchGames = async (params) => {
   return response.data
 }
 
+export const fetchGameHistory = async (params) => {
+  const response = await http.get('/quiz/history', { params })
+  return response.data
+}
+
+export const openGame = async (id) => {
+  const response = await http.post(`/quiz/${id}/open`)
+  return response.data
+}
+
+export const resetGame = async (id) => {
+  const response = await http.post(`/quiz/${id}/reset`)
+  return response.data
+}
+
+export const restartGame = async (id) => {
+  const response = await http.post(`/quiz/${id}/restart`)
+  return response.data
+}
+
 export const createGame = async (payload) => {
   const response = await http.post('/quiz', payload)
   return response.data

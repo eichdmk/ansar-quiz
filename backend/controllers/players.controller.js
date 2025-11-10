@@ -29,6 +29,10 @@ export async function createPlayer(request, reply) {
       reply.code(409).send({ message: 'Игра уже завершена' })
       return
     }
+    if (game.rows[0].status === 'draft') {
+      reply.code(409).send({ message: 'Комната ещё не открыта преподавателем' })
+      return
+    }
     const result = await pool.query(
       'INSERT INTO players (username, group_name, game_id) VALUES ($1, $2, $3) RETURNING id, username, group_name, game_id, score, joined_at',
       [preparedUsername, preparedGroup || null, preparedGameId],

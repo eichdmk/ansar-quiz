@@ -1,0 +1,226 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #0b2f5a;
+  margin: 0;
+}
+
+.refreshButton {
+  padding: 0.6rem 1.4rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #1e64d9, #1e90ff);
+  color: #fff;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.refreshButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.refreshButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(30, 100, 217, 0.25);
+}
+
+.state {
+  padding: 1.5rem;
+  border-radius: 1rem;
+  background: rgba(30, 100, 217, 0.08);
+  color: #0b2f5a;
+  font-weight: 500;
+  text-align: center;
+}
+
+.error {
+  padding: 1.5rem;
+  border-radius: 1rem;
+  background: rgba(220, 53, 69, 0.08);
+  color: #861d26;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.retryButton {
+  align-self: flex-start;
+  padding: 0.5rem 1.2rem;
+  border-radius: 0.75rem;
+  background: #fff;
+  border: 1px solid rgba(30, 100, 217, 0.4);
+  color: #1e64d9;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.retryButton:hover {
+  background: #1e64d9;
+  color: #fff;
+}
+
+.list {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.card {
+  border-radius: 1.25rem;
+  background: #fff;
+  padding: 1.5rem;
+  box-shadow: 0 18px 45px rgba(15, 52, 96, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.gameName {
+  margin: 0 0 0.4rem;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #0b2f5a;
+}
+
+.gameMeta {
+  color: rgba(11, 47, 90, 0.7);
+  font-size: 0.95rem;
+}
+
+.gameStats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+  color: #1e64d9;
+}
+
+.winnersSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0b2f5a;
+}
+
+.winnersList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.winnerItem {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  padding: 0.75rem 1rem;
+  border-radius: 0.85rem;
+  background: rgba(30, 100, 217, 0.08);
+}
+
+.winnerName {
+  font-weight: 700;
+  color: #0b2f5a;
+}
+
+.winnerGroup {
+  font-size: 0.9rem;
+  color: rgba(11, 47, 90, 0.7);
+}
+
+.winnerScore {
+  margin-left: auto;
+  font-weight: 600;
+  color: #1e64d9;
+}
+
+.noWinners {
+  margin: 0;
+  color: rgba(11, 47, 90, 0.65);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.pageButton {
+  padding: 0.5rem 1.2rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(30, 100, 217, 0.12);
+  color: #0b2f5a;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.pageButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pageButton:not(:disabled):hover {
+  background: rgba(30, 100, 217, 0.22);
+}
+
+.pageInfo {
+  font-weight: 600;
+  color: #0b2f5a;
+}
+
+@media (max-width: 768px) {
+  .card {
+    padding: 1.2rem;
+  }
+
+  .gameStats {
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .winnerItem {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .winnerScore {
+    margin-left: 0;
+  }
+}
+

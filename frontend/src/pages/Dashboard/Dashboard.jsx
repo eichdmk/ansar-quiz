@@ -8,6 +8,9 @@ import {
   startGameFlow,
   stopGameFlow,
   goToNextQuestion,
+  openGameLobby,
+  resetGameLobby,
+  restartExistingGame,
   selectGames,
   selectGamesError,
   selectGamesState,
@@ -70,13 +73,52 @@ function Dashboard() {
     dispatch(removeGame(id))
   }
 
-  const handleStart = (game) => {
+  const handleOpen = (game) => {
+    setLocalError(null)
+    setPendingGameId(game.id)
+    dispatch(openGameLobby(game.id))
+      .unwrap()
+      .catch((error) => {
+        setLocalError(error ?? 'Не удалось открыть комнату')
+      })
+      .finally(() => {
+        setPendingGameId(null)
+      })
+  }
+
+  const handleLaunch = (game) => {
     setLocalError(null)
     setPendingGameId(game.id)
     dispatch(startGameFlow({ gameId: game.id }))
       .unwrap()
       .catch((error) => {
         setLocalError(error ?? 'Не удалось запустить игру')
+      })
+      .finally(() => {
+        setPendingGameId(null)
+      })
+  }
+
+  const handleCancelLobby = (game) => {
+    setLocalError(null)
+    setPendingGameId(game.id)
+    dispatch(resetGameLobby(game.id))
+      .unwrap()
+      .catch((error) => {
+        setLocalError(error ?? 'Не удалось закрыть комнату')
+      })
+      .finally(() => {
+        setPendingGameId(null)
+      })
+  }
+
+  const handleRestart = (game) => {
+    setLocalError(null)
+    setPendingGameId(game.id)
+    dispatch(restartExistingGame(game.id))
+      .unwrap()
+      .catch((error) => {
+        setLocalError(error ?? 'Не удалось перезапустить игру')
       })
       .finally(() => {
         setPendingGameId(null)
@@ -174,6 +216,8 @@ function Dashboard() {
                     ? styles.cardRunning
                     : game.status === 'finished'
                     ? styles.cardFinished
+                    : game.status === 'ready'
+                    ? styles.cardReady
                     : ''
                 }`}
               >
@@ -185,6 +229,8 @@ function Dashboard() {
                         ? 'В процессе'
                         : game.status === 'finished'
                         ? 'Завершена'
+                        : game.status === 'ready'
+                        ? 'Комната открыта'
                         : 'Черновик'}
                     </span>
                   </div>
@@ -208,16 +254,37 @@ function Dashboard() {
                   >
                     Вопросы
                   </button>
-                  {game.status !== 'running' ? (
+                  {game.status === 'draft' && (
+                    <button
+                      type="button"
+                      className={styles.primaryButton}
+                      onClick={() => handleOpen(game)}
+                      disabled={pendingGameId === game.id}
+                    >
+                      Открыть комнату
+                    </button>
+                  )}
+                  {game.status === 'ready' && (
                     <button
                       type="button"
                       className={styles.successButton}
-                      onClick={() => handleStart(game)}
+                      onClick={() => handleLaunch(game)}
                       disabled={pendingGameId === game.id}
                     >
                       Запустить
                     </button>
-                  ) : (
+                  )}
+                  {game.status === 'ready' && (
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={() => handleCancelLobby(game)}
+                      disabled={pendingGameId === game.id}
+                    >
+                      Отменить комнату
+                    </button>
+                  )}
+                  {game.status === 'running' && (
                     <button
                       type="button"
                       className={styles.warningButton}
@@ -235,6 +302,16 @@ function Dashboard() {
                       disabled={pendingGameId === game.id}
                     >
                       Следующий вопрос
+                    </button>
+                  )}
+                  {game.status === 'finished' && (
+                    <button
+                      type="button"
+                      className={styles.primaryButton}
+                      onClick={() => handleRestart(game)}
+                      disabled={pendingGameId === game.id}
+                    >
+                      Перезапустить игру
                     </button>
                   )}
                   <button

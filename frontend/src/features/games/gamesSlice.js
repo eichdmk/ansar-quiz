@@ -1,5 +1,15 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
-import { createGame, deleteGame, fetchGames, startGame, stopGame, advanceGameQuestion } from '../../api/games.js'
+import {
+  createGame,
+  deleteGame,
+  fetchGames,
+  startGame,
+  stopGame,
+  advanceGameQuestion,
+  openGame,
+  resetGame,
+  restartGame,
+} from '../../api/games.js'
 
 const normalizeGame = (raw) => ({
   id: raw.id,
@@ -41,6 +51,54 @@ export const addGame = createAsyncThunk(
         error.response?.data?.message ??
         error.message ??
         'Не удалось создать игру'
+      return rejectWithValue(message)
+    }
+  },
+)
+
+export const openGameLobby = createAsyncThunk(
+  'games/openGameLobby',
+  async (gameId, { rejectWithValue }) => {
+    try {
+      const data = await openGame(gameId)
+      return data.game
+    } catch (error) {
+      const message =
+        error.response?.data?.message ??
+        error.message ??
+        'Не удалось открыть комнату'
+      return rejectWithValue(message)
+    }
+  },
+)
+
+export const resetGameLobby = createAsyncThunk(
+  'games/resetGameLobby',
+  async (gameId, { rejectWithValue }) => {
+    try {
+      const data = await resetGame(gameId)
+      return data.game
+    } catch (error) {
+      const message =
+        error.response?.data?.message ??
+        error.message ??
+        'Не удалось закрыть комнату'
+      return rejectWithValue(message)
+    }
+  },
+)
+
+export const restartExistingGame = createAsyncThunk(
+  'games/restartExistingGame',
+  async (gameId, { rejectWithValue }) => {
+    try {
+      const data = await restartGame(gameId)
+      return data.game
+    } catch (error) {
+      const message =
+        error.response?.data?.message ??
+        error.message ??
+        'Не удалось перезапустить игру'
       return rejectWithValue(message)
     }
   },
@@ -161,6 +219,42 @@ const gamesSlice = createSlice({
       })
       .addCase(addGame.rejected, (state, action) => {
         state.error = action.payload ?? 'Не удалось создать игру'
+      })
+      .addCase(openGameLobby.pending, (state) => {
+        state.error = null
+      })
+      .addCase(openGameLobby.fulfilled, (state, action) => {
+        const normalized = normalizeGame(action.payload)
+        state.items = state.items.map((game) =>
+          game.id === normalized.id ? normalized : game,
+        )
+      })
+      .addCase(openGameLobby.rejected, (state, action) => {
+        state.error = action.payload ?? 'Не удалось открыть комнату'
+      })
+      .addCase(resetGameLobby.pending, (state) => {
+        state.error = null
+      })
+      .addCase(resetGameLobby.fulfilled, (state, action) => {
+        const normalized = normalizeGame(action.payload)
+        state.items = state.items.map((game) =>
+          game.id === normalized.id ? normalized : game,
+        )
+      })
+      .addCase(resetGameLobby.rejected, (state, action) => {
+        state.error = action.payload ?? 'Не удалось закрыть комнату'
+      })
+      .addCase(restartExistingGame.pending, (state) => {
+        state.error = null
+      })
+      .addCase(restartExistingGame.fulfilled, (state, action) => {
+        const normalized = normalizeGame(action.payload)
+        state.items = state.items.map((game) =>
+          game.id === normalized.id ? normalized : game,
+        )
+      })
+      .addCase(restartExistingGame.rejected, (state, action) => {
+        state.error = action.payload ?? 'Не удалось перезапустить игру'
       })
       .addCase(removeGame.fulfilled, (state, action) => {
         state.items = state.items.filter((game) => game.id !== action.payload)

@@ -80,6 +80,17 @@
   text-align: center;
 }
 
+.countdownBanner {
+  padding: 18px 22px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #ff9800, #ff5722);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 22px;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
 .tablePlaceholder {
   display: flex;
   flex-direction: column;

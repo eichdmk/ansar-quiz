@@ -144,6 +144,11 @@
   box-shadow: 0 20px 34px rgba(76, 175, 80, 0.15);
 }
 
+.cardReady {
+  border-color: rgba(255, 193, 7, 0.35);
+  box-shadow: 0 18px 32px rgba(255, 193, 7, 0.18);
+}
+
 .cardFinished {
   border-color: rgba(156, 156, 161, 0.35);
   opacity: 0.94;
@@ -171,6 +176,11 @@
 .status_running {
   background: rgba(76, 175, 80, 0.18);
   color: #2e7d32;
+}
+
+.status_ready {
+  background: rgba(255, 193, 7, 0.22);
+  color: #b28704;
 }
 
 .status_finished {

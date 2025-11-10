@@ -8,6 +8,7 @@ import RequireAuth from './components/RequireAuth.jsx'
 import PlayerJoin from './pages/PlayerJoin/PlayerJoin.jsx'
 import PlayerPlay from './pages/PlayerPlay/PlayerPlay.jsx'
 import Leaderboard from './pages/Leaderboard/Leaderboard.jsx'
+import GameHistory from './pages/GameHistory/GameHistory.jsx'
 
 export const router = createBrowserRouter([
   {
@@ -45,6 +46,10 @@ export const router = createBrowserRouter([
       {
         path: 'game/:gameId',
         element: <GameQuestions />,
+      },
+      {
+        path: 'history',
+        element: <GameHistory />,
       },
     ],
   },
