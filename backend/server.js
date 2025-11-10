@@ -7,6 +7,7 @@ import quizRoute from './routes/quiz.route.js'
 import questionsRoute from './routes/questions.route.js'
 import answersRoute from './routes/answers.route.js'
 import playersRoute from './routes/players.route.js'
+import playerAnswersRoute from './routes/playerAnswers.route.js'
 import pool, { verifyDatabaseConnection } from './plugins/db.js'
 import { ensureDefaultAdmin } from './services/admin.service.js'
 
@@ -30,6 +31,7 @@ await app.register(authRoutes, { prefix: '/api/auth' })
 await app.register(questionsRoute, { prefix: '/api/questions' })
 await app.register(answersRoute, { prefix: '/api/answers' })
 await app.register(playersRoute, { prefix: '/api/players' })
+await app.register(playerAnswersRoute, { prefix: '/api/player-answers' })
 
 
 const start = async () => {

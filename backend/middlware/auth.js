@@ -1,8 +1,30 @@
+import jwt from 'jsonwebtoken'
+import dotenv from 'dotenv'
 
-// Реализуй проверку токена администратора.
-// 1. Экспортируй функцию preHandler: async function adminGuard(request, reply).
-// 2. Достань токен из заголовков/куки.
-// 3. Вызови fastify.jwt.verify(token) и положи payload в request.user.
-// 4. Обработай ошибки: reply.code(401).send({ message: 'Unauthorized' }).
+dotenv.config()
 
-
+export async function adminGuard(request, reply) {
+  const authorization = request.headers.authorization
+  let token = null
+  if (typeof authorization === 'string' && authorization.startsWith('Bearer ')) {
+    token = authorization.slice(7).trim()
+  }
+  if (!token && typeof request.headers['x-access-token'] === 'string') {
+    token = request.headers['x-access-token']
+  }
+  if (!token) {
+    reply.code(401).send({ message: 'Unauthorized' })
+    return
+  }
+  try {
+    if (!process.env.JWT_SECRET) {
+      throw new Error('JWT secret is not configured')
+    }
+    const payload = jwt.verify(token, process.env.JWT_SECRET)
+    request.user = payload
+  } catch (error) {
+    request.log.error(error)
+    reply.code(401).send({ message: 'Unauthorized' })
+    return
+  }
+}

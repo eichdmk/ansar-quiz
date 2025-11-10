@@ -35,11 +35,9 @@ export async function setupAdmin(request, reply) {
       })
     }
 
-    // 4. Хешируем пароль. Чем больше rounds, тем безопаснее, но медленнее.
     const saltRounds = Number(process.env.BCRYPT_SALT_ROUNDS) || 10
     const hash = await bcrypt.hash(password, saltRounds)
 
-    // 5. Сохраняем администратора в базе.
     const insertResult = await pool.query(
       `
         INSERT INTO admin (username, hash_password)
@@ -61,8 +59,6 @@ export async function setupAdmin(request, reply) {
   }
 }
 
-// Контроллер входа администратора.
-// Здесь выдаём JWT, который фронтенд сохранит и будет отправлять в заголовках.
 export async function login(request, reply) {
   const { username, password } = request.body ?? {}
 
@@ -73,7 +69,6 @@ export async function login(request, reply) {
   }
 
   try {
-    // 1. Ищем пользователя по логину.
     const result = await pool.query(
       'SELECT id, username, hash_password FROM admin WHERE username = $1',
       [username],
@@ -87,7 +82,6 @@ export async function login(request, reply) {
 
     const admin = result.rows[0]
 
-    // 2. Сверяем хеш. compare сам достанет salt из хеша.
     const isMatch = await bcrypt.compare(password, admin.hash_password)
 
     if (!isMatch) {
@@ -96,7 +90,6 @@ export async function login(request, reply) {
       })
     }
 
-    // 3. Генерируем JWT для дальнейшей авторизации.
     ensureJwtSecret()
     const token = jwt.sign(
       {

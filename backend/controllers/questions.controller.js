@@ -122,21 +122,21 @@ export async function listQuestions(request, reply) {
 }
 
 export async function deleteQuestion(request, reply) {
-  const preparedId = Number(request.params?.id)
-  if (Number.isNaN(preparedId)) {
+  const id = Number(request.params?.id)
+  if (Number.isNaN(id)) {
     reply.code(400).send({ message: 'Некорректный идентификатор' })
     return
   }
   try {
     const result = await pool.query(
       'DELETE FROM questions WHERE id = $1 RETURNING id',
-      [preparedId],
+      [id],
     )
     if (result.rowCount === 0) {
       reply.code(404).send({ message: 'Вопрос не найден' })
       return
     }
-    reply.send({ id: preparedId })
+    reply.send({ id: id })
   } catch (error) {
     request.log.error(error)
     reply.code(500).send({ message: 'Ошибка сервера' })
