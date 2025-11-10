@@ -1,4 +1,5 @@
 import pool from '../plugins/db.js'
+import { getCurrentQuestion } from '../services/gameState.service.js'
 
 function sanitizeText(value) {
   if (typeof value !== 'string') {
@@ -17,11 +18,15 @@ export async function createPlayer(request, reply) {
     return
   }
   try {
-    const game = await pool.query('SELECT id FROM games WHERE id = $1', [
+    const game = await pool.query('SELECT id, status, is_question_closed FROM games WHERE id = $1', [
       preparedGameId,
     ])
     if (game.rowCount === 0) {
       reply.code(404).send({ message: 'Игра не найдена' })
+      return
+    }
+    if (game.rows[0].status === 'finished') {
+      reply.code(409).send({ message: 'Игра уже завершена' })
       return
     }
     const result = await pool.query(
@@ -35,6 +40,17 @@ export async function createPlayer(request, reply) {
       gameId: result.rows[0].game_id,
       score: result.rows[0].score,
       joinedAt: result.rows[0].joined_at,
+      gameStatus: game.rows[0].status,
+      isQuestionClosed: game.rows[0].is_question_closed,
+    }
+    const currentQuestion = await getCurrentQuestion(preparedGameId)
+    if (currentQuestion.status === 'running' && currentQuestion.question) {
+      payload.currentQuestion = {
+        question: currentQuestion.question,
+        index: currentQuestion.index,
+        total: currentQuestion.total,
+        isClosed: Boolean(currentQuestion.isClosed),
+      }
     }
     if (request.server?.io) {
       request.server.io.emit('player:joined', payload)

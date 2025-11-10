@@ -41,9 +41,14 @@ export async function createQuestion(request, reply) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    const positionResult = await client.query(
+      'SELECT COALESCE(MAX(position), 0) + 1 AS next FROM questions WHERE game_id = $1',
+      [preparedGameId],
+    )
+    const nextPosition = positionResult.rows[0]?.next ?? 1
     const questionResult = await client.query(
-      'INSERT INTO questions (question_text, game_id, image_url) VALUES ($1, $2, $3) RETURNING id, question_text, game_id, image_url, created_at',
-      [preparedText, preparedGameId, preparedImage?.length ? preparedImage : null],
+      'INSERT INTO questions (question_text, game_id, image_url, position) VALUES ($1, $2, $3, $4) RETURNING id, question_text, game_id, image_url, created_at, position',
+      [preparedText, preparedGameId, preparedImage?.length ? preparedImage : null, nextPosition],
     )
     const question = questionResult.rows[0]
     let createdAnswers = []
@@ -60,8 +65,17 @@ export async function createQuestion(request, reply) {
     }
     await client.query('COMMIT')
     reply.code(201).send({
-      ...question,
-      answers: createdAnswers,
+      id: question.id,
+      text: question.question_text,
+      imageUrl: question.image_url,
+      createdAt: question.created_at,
+      gameId: question.game_id,
+      position: question.position,
+      answers: createdAnswers.map((row) => ({
+        id: row.id,
+        text: row.answer_text,
+        isTrue: row.is_true,
+      })),
     })
   } catch (error) {
     await client.query('ROLLBACK')
@@ -82,7 +96,7 @@ export async function listQuestions(request, reply) {
   }
   try {
     const questionsResult = await pool.query(
-      'SELECT id, question_text, image_url, created_at FROM questions WHERE game_id = $1 ORDER BY created_at ASC',
+      'SELECT id, question_text, image_url, created_at, position FROM questions WHERE game_id = $1 ORDER BY position ASC, created_at ASC',
       [preparedGameId],
     )
     const questionIds = questionsResult.rows.map((item) => item.id)
@@ -108,6 +122,7 @@ export async function listQuestions(request, reply) {
       text: question.question_text,
       imageUrl: question.image_url,
       createdAt: question.created_at,
+      position: question.position,
       answers: answersMap.get(question.id) ?? [],
     }))
     reply.send({
@@ -140,5 +155,132 @@ export async function deleteQuestion(request, reply) {
   } catch (error) {
     request.log.error(error)
     reply.code(500).send({ message: 'Ошибка сервера' })
+  }
+}
+
+function normalizeAnswersForUpdate(raw) {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null
+      }
+      const text = sanitizeText(item.text)
+      if (!text) {
+        return null
+      }
+      return {
+        id: item.id ? Number(item.id) : null,
+        text,
+        isTrue: Boolean(item.isTrue),
+      }
+    })
+    .filter(Boolean)
+}
+
+export async function updateQuestion(request, reply) {
+  const questionId = Number(request.params?.id)
+  if (Number.isNaN(questionId)) {
+    reply.code(400).send({ message: 'Некорректный идентификатор' })
+    return
+  }
+
+  const { text, imageUrl, answers } = request.body ?? {}
+  const preparedText = sanitizeText(text)
+  if (!preparedText) {
+    reply.code(400).send({ message: 'Введите текст вопроса' })
+    return
+  }
+
+  const normalizedAnswers = normalizeAnswersForUpdate(answers)
+  if (normalizedAnswers.length < 2) {
+    reply.code(400).send({ message: 'Нужно минимум два варианта ответа' })
+    return
+  }
+  if (!normalizedAnswers.some((item) => item.isTrue)) {
+    reply.code(400).send({ message: 'Отметьте правильный ответ' })
+    return
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const questionResult = await client.query(
+      'UPDATE questions SET question_text = $1, image_url = $2 WHERE id = $3 RETURNING id, question_text, image_url, created_at, game_id, position',
+      [preparedText, imageUrl?.trim() || null, questionId],
+    )
+
+    if (questionResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(404).send({ message: 'Вопрос не найден' })
+      return
+    }
+
+    const existingAnswersResult = await client.query(
+      'SELECT id FROM answers WHERE question_id = $1',
+      [questionId],
+    )
+    const existingIds = new Set(existingAnswersResult.rows.map((row) => row.id))
+    const incomingIds = new Set(
+      normalizedAnswers.filter((item) => item.id).map((item) => item.id),
+    )
+
+    const toDelete = [...existingIds].filter((id) => !incomingIds.has(id))
+    if (toDelete.length > 0) {
+      await client.query(
+        'DELETE FROM answers WHERE question_id = $1 AND id = ANY($2::int[])',
+        [questionId, toDelete],
+      )
+    }
+
+    for (const answer of normalizedAnswers) {
+      if (answer.id) {
+        const updateResult = await client.query(
+          'UPDATE answers SET answer_text = $1, is_true = $2 WHERE id = $3 AND question_id = $4',
+          [answer.text, answer.isTrue, answer.id, questionId],
+        )
+        if (updateResult.rowCount === 0) {
+          await client.query('ROLLBACK')
+          reply
+            .code(400)
+            .send({ message: 'Ответ не найден или не принадлежит вопросу' })
+          return
+        }
+      } else {
+        await client.query(
+          'INSERT INTO answers (question_id, answer_text, is_true) VALUES ($1, $2, $3)',
+          [questionId, answer.text, answer.isTrue],
+        )
+      }
+    }
+
+    const updatedAnswersResult = await client.query(
+      'SELECT id, answer_text, is_true FROM answers WHERE question_id = $1 ORDER BY id ASC',
+      [questionId],
+    )
+
+    await client.query('COMMIT')
+
+    reply.send({
+      id: questionResult.rows[0].id,
+      text: questionResult.rows[0].question_text,
+      imageUrl: questionResult.rows[0].image_url,
+      createdAt: questionResult.rows[0].created_at,
+      gameId: questionResult.rows[0].game_id,
+      position: questionResult.rows[0].position,
+      answers: updatedAnswersResult.rows.map((row) => ({
+        id: row.id,
+        text: row.answer_text,
+        isTrue: row.is_true,
+      })),
+    })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    request.log.error(error)
+    reply.code(500).send({ message: 'Не удалось обновить вопрос' })
+  } finally {
+    client.release()
   }
 }

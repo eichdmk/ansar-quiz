@@ -1,0 +1,129 @@
+.app {
+  min-height: 100vh;
+  padding: 32px 48px 48px;
+  background:
+    radial-gradient(circle at top right, rgba(33, 150, 243, 0.12), transparent 60%),
+    radial-gradient(circle at bottom left, rgba(33, 150, 243, 0.08), transparent 55%),
+    #f3f6ff;
+  color: #1a2b4c;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.brandTitle {
+  font-size: 32px;
+  font-weight: 700;
+  color: #0f488a;
+}
+
+.brandSubtitle {
+  font-size: 16px;
+  color: #35506f;
+}
+
+.primaryButton {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2196f3, #1c7ed6);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(33, 150, 243, 0.24);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.primaryButton:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 28px rgba(33, 150, 243, 0.28);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: 0 24px 36px rgba(15, 56, 95, 0.08);
+  border: 1px solid rgba(33, 150, 243, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cardHeader h2 {
+  margin: 0;
+  font-size: 22px;
+  color: #12385d;
+}
+
+.cardText {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #2e4765;
+}
+
+.featureList {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #1d3653;
+}
+
+.featureList li {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.icon {
+  width: 32px;
+  height: 32px;
+  color: #2196f3;
+}
+
+@media (max-width: 640px) {
+  .app {
+    padding: 24px 16px 32px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .primaryButton {
+    width: 100%;
+    text-align: center;
+  }
+}
+

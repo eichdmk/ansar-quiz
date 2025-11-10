@@ -7,6 +7,14 @@ import sharp from 'sharp'
 const uploadsDir = path.resolve(process.cwd(), 'uploads')
 const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
+async function drainStream(stream) {
+  return new Promise((resolve, reject) => {
+    stream.on('end', resolve)
+    stream.on('error', reject)
+    stream.resume()
+  })
+}
+
 export async function uploadQuestionImage(request, reply) {
   const file = await request.file()
   if (!file) {
@@ -14,19 +22,18 @@ export async function uploadQuestionImage(request, reply) {
     return
   }
   if (!allowedTypes.has(file.mimetype)) {
+    await drainStream(file.file)
     reply.code(400).send({ message: 'Неподдерживаемый формат' })
     return
   }
   const filename = `${Date.now()}-${crypto.randomUUID()}.webp`
   const targetPath = path.join(uploadsDir, filename)
-  const transformer = sharp({
-    failOn: {
-      error: true,
-    },
-  }).rotate().webp({
-    quality: 80,
-    smartSubsample: true,
-  })
+  const transformer = sharp()
+    .rotate()
+    .webp({
+      quality: 80,
+      smartSubsample: true,
+    })
   const writeStream = createWriteStream(targetPath)
   try {
     await pipeline(file.file, transformer, writeStream)
@@ -36,8 +43,12 @@ export async function uploadQuestionImage(request, reply) {
       mimetype: 'image/webp',
     })
   } catch (error) {
+    await drainStream(file.file)
     reply.log.error(error)
-    reply.code(500).send({ message: 'Ошибка загрузки файла' })
+    reply.code(500).send({
+      message: 'Ошибка загрузки файла',
+      detail: error.message,
+    })
   }
 }
 

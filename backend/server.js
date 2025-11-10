@@ -14,6 +14,7 @@ import answersRoute from './routes/answers.route.js'
 import playersRoute from './routes/players.route.js'
 import playerAnswersRoute from './routes/playerAnswers.route.js'
 import uploadsRoute from './routes/uploads.route.js'
+import gameStateRoute from './routes/gameState.route.js'
 import pool, { verifyDatabaseConnection } from './plugins/db.js'
 import { ensureDefaultAdmin } from './services/admin.service.js'
 
@@ -24,7 +25,12 @@ const app = Fastify({ logger: true })
 const uploadsDir = path.resolve(process.cwd(), 'uploads')
 await fs.mkdir(uploadsDir, { recursive: true })
 
-await app.register(cors, { origin: true })
+await app.register(cors, {
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+})
 await app.register(fastifyMultipart, {
   limits: {
     fileSize: 5 * 1024 * 1024,
@@ -65,6 +71,7 @@ await app.register(answersRoute, { prefix: '/api/answers' })
 await app.register(playersRoute, { prefix: '/api/players' })
 await app.register(playerAnswersRoute, { prefix: '/api/player-answers' })
 await app.register(uploadsRoute, { prefix: '/api/uploads' })
+await app.register(gameStateRoute, { prefix: '/api/game-state' })
 
 
 const start = async () => {

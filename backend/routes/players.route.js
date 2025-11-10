@@ -2,11 +2,10 @@ import { createPlayer, listPlayers, updatePlayerScore, deletePlayer } from '../c
 import { adminGuard } from '../middlware/auth.js'
 
 export default async function playersRoutes(fastify) {
-  fastify.addHook('preHandler', adminGuard)
   fastify.post('/', createPlayer)
-  fastify.get('/', listPlayers)
-  fastify.get('/:gameId', listPlayers)
-  fastify.patch('/:id/score', updatePlayerScore)
-  fastify.delete('/:id', deletePlayer)
+  fastify.get('/', { preHandler: adminGuard }, listPlayers)
+  fastify.get('/:gameId', { preHandler: adminGuard }, listPlayers)
+  fastify.patch('/:id/score', { preHandler: adminGuard }, updatePlayerScore)
+  fastify.delete('/:id', { preHandler: adminGuard }, deletePlayer)
 }
 

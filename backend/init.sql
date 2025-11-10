@@ -12,17 +12,26 @@ CREATE TABLE admin (
     username VARCHAR(100) NOT NULL UNIQUE,
     hash_password TEXT NOT NULL
 );
+-- Таблица игр (квизов)
 CREATE TABLE games (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    status VARCHAR(20) DEFAULT 'draft',
+    current_question_index INTEGER DEFAULT 0,
+    question_duration INTEGER DEFAULT 30,
+    started_at TIMESTAMP,
+    finished_at TIMESTAMP,
+    is_question_closed BOOLEAN DEFAULT FALSE
 );
+-- Таблица вопросов
 CREATE TABLE questions (
     id SERIAL PRIMARY KEY,
-    game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    game_id INTEGER REFERENCES games(id) ON DELETE CASCADE,
     question_text TEXT NOT NULL,
     image_url TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    position INTEGER DEFAULT 0
 );
 CREATE TABLE answers (
     id SERIAL PRIMARY KEY,

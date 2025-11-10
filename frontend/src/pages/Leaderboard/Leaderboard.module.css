@@ -1,0 +1,152 @@
+.page {
+  min-height: 100vh;
+  background: #f3f6ff;
+  padding: 48px 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.board {
+  width: min(1024px, 100%);
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 36px 40px;
+  border: 1px solid rgba(33, 150, 243, 0.14);
+  box-shadow: 0 30px 44px rgba(15, 56, 95, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: #143559;
+}
+
+.headerRow {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+@media (min-width: 768px) {
+  .headerRow {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+.gameSelector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gameSelector label {
+  font-size: 14px;
+  color: #2f4c6a;
+  font-weight: 600;
+}
+
+.gameSelector select {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(33, 150, 243, 0.26);
+  background: #ffffff;
+  font-size: 15px;
+  color: #173051;
+}
+
+.gameSelector select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.16);
+}
+
+.board h1 {
+  margin: 0;
+  font-size: 32px;
+}
+
+.meta {
+  margin: 0;
+  color: #3b5476;
+  font-size: 15px;
+}
+
+.stateBanner {
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: rgba(101, 204, 118, 0.14);
+  color: #26663c;
+  font-weight: 600;
+  text-align: center;
+}
+
+.tablePlaceholder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.tableHeader,
+.tableRow {
+  display: grid;
+  grid-template-columns: 60px 1fr 1fr 100px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+
+.tableHeader {
+  background: rgba(33, 150, 243, 0.16);
+  color: #1b4b7a;
+  font-weight: 600;
+}
+
+.tableRow {
+  background: #ffffff;
+  border: 1px solid rgba(33, 150, 243, 0.12);
+  color: #153051;
+}
+
+.tableRow:nth-child(even) {
+  background: rgba(243, 246, 255, 0.74);
+}
+
+.stateBox {
+  padding: 22px;
+  border-radius: 16px;
+  border: 1px dashed rgba(33, 150, 243, 0.32);
+  background: rgba(33, 150, 243, 0.08);
+  color: #14406b;
+  font-size: 15px;
+}
+
+@media (max-width: 640px) {
+  .board {
+    padding: 28px 22px;
+  }
+
+  .headerRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .gameSelector select {
+    width: 100%;
+  }
+
+  .tableHeader,
+  .tableRow {
+    grid-template-columns: 40px 1fr;
+    gap: 8px;
+  }
+
+  .tableHeader span:nth-child(n + 3),
+  .tableRow span:nth-child(n + 3) {
+    display: none;
+  }
+}
+
