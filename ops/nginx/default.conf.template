@@ -98,7 +98,7 @@ server {
     location ~* \.(?:gif|jpg|jpeg|png|svg|webp|woff2?|ttf|js|css)$ {
         access_log off;
         expires 7d;
-        try_files $uri /index.html;
+        try_files $uri =404;
     }
 }
 
