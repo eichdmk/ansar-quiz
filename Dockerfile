@@ -4,6 +4,8 @@ FROM node:20-alpine AS frontend-build
 
 WORKDIR /app
 
+RUN sed -i 's|//dl-cdn.alpinelinux.org/alpine|//mirror.yandex.ru/mirrors/alpine|g' /etc/apk/repositories
+
 COPY frontend/package*.json ./
 RUN npm ci
 
@@ -16,6 +18,7 @@ RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime
 
+RUN sed -i 's|//dl-cdn.alpinelinux.org/alpine|//mirror.yandex.ru/mirrors/alpine|g' /etc/apk/repositories
 RUN apk add --no-cache bash curl gettext openssl
 
 ENV SERVER_NAME=_ \
