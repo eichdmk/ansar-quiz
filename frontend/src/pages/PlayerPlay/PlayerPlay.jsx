@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../app/hooks.js'
 import { selectPlayer, resetPlayer } from '../../features/player/playerSlice.js'
@@ -7,6 +7,8 @@ import { submitAnswer } from '../../api/playerAnswers.js'
 import { fetchCurrentQuestion } from '../../api/games.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './PlayerPlay.module.css'
+
+const COUNTDOWN_SOUND_URL = '/sounds/race-countdown-beeps-04-sound-effect-33364869.mp3'
 
 const LightningIcon = () => (
   <svg
@@ -39,6 +41,15 @@ function PlayerPlay() {
   const [questionClosed, setQuestionClosed] = useState(false)
   const [attemptLocked, setAttemptLocked] = useState(false)
   const [countdownValue, setCountdownValue] = useState(null)
+  const [countdownSoundReady, setCountdownSoundReady] = useState(false)
+  const countdownAudioRef = useRef({
+    context: null,
+    buffer: null,
+    lastValue: null,
+    disabled: false,
+    loading: false,
+    hasPlayed: false,
+  })
 
   const avatarPalette = useMemo(
     () => ['5A6FF1', 'FF7F57', '33B679', 'A65DEB', 'FFBA08', '00B4D8'],
@@ -168,6 +179,150 @@ function PlayerPlay() {
         setError(err?.message ?? 'Не удалось загрузить текущий вопрос')
       })
   }, [player, applyQuestion, completeGame])
+
+  const ensureCountdownAudio = useCallback(async () => {
+    if (typeof window === 'undefined' || countdownAudioRef.current.disabled) {
+      return false
+    }
+    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext
+    if (!AudioContextConstructor) {
+      countdownAudioRef.current.disabled = true
+      return false
+    }
+    let context = countdownAudioRef.current.context
+    if (!context) {
+      context = new AudioContextConstructor()
+      countdownAudioRef.current.context = context
+    }
+    if (context.state === 'suspended') {
+      try {
+        await context.resume()
+      } catch {
+        // ignore resume failures until a user gesture resumes the context
+      }
+    }
+    if (!countdownAudioRef.current.buffer && !countdownAudioRef.current.loading) {
+      countdownAudioRef.current.loading = true
+      try {
+        const response = await fetch(COUNTDOWN_SOUND_URL)
+        const arrayBuffer = await response.arrayBuffer()
+        const audioBuffer = await context.decodeAudioData(arrayBuffer)
+        countdownAudioRef.current.buffer = audioBuffer
+      } catch (error) {
+        console.error('Не удалось загрузить звук отсчёта', error)
+        countdownAudioRef.current.disabled = true
+        countdownAudioRef.current.loading = false
+        return false
+      }
+      countdownAudioRef.current.loading = false
+    }
+    return Boolean(countdownAudioRef.current.buffer)
+  }, [])
+
+  const playCountdownTone = useCallback(
+    async (value) => {
+      if (typeof value !== 'number' || value < 0) {
+        return
+      }
+      if (!countdownSoundReady) {
+        return
+      }
+      if (countdownAudioRef.current.hasPlayed) {
+        return
+      }
+      if (value < 1) {
+        return
+      }
+      const audioReady = await ensureCountdownAudio()
+      if (!audioReady) {
+        return
+      }
+      countdownAudioRef.current.hasPlayed = true
+      if (countdownAudioRef.current.lastValue === value) {
+        return
+      }
+      countdownAudioRef.current.lastValue = value
+      const context = countdownAudioRef.current.context
+      const buffer = countdownAudioRef.current.buffer
+      if (!context || !buffer) {
+        return
+      }
+      if (context.state === 'suspended') {
+        try {
+          await context.resume()
+        } catch {
+          return
+        }
+      }
+      const source = context.createBufferSource()
+      const gainNode = context.createGain()
+      source.buffer = buffer
+      source.playbackRate.value = value === 0 ? 1.1 : 1
+      gainNode.gain.value = value === 0 ? 0.8 : 0.6
+      source.connect(gainNode)
+      gainNode.connect(context.destination)
+      source.start()
+      source.onended = () => {
+        source.disconnect()
+        gainNode.disconnect()
+      }
+    },
+    [countdownSoundReady, ensureCountdownAudio],
+  )
+
+  useEffect(() => {
+    if (countdownValue === null) {
+      countdownAudioRef.current.lastValue = null
+      countdownAudioRef.current.hasPlayed = false
+      return
+    }
+    if (typeof countdownValue === 'number' && countdownValue >= 0) {
+      playCountdownTone(countdownValue)
+    }
+  }, [countdownValue, playCountdownTone])
+
+  useEffect(() => {
+    return () => {
+      const { context } = countdownAudioRef.current
+      if (context && typeof context.close === 'function') {
+        context.close().catch(() => {})
+      }
+      countdownAudioRef.current.context = null
+      countdownAudioRef.current.buffer = null
+      countdownAudioRef.current.lastValue = null
+      countdownAudioRef.current.hasPlayed = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (countdownSoundReady || countdownAudioRef.current.disabled) {
+      return undefined
+    }
+    let cancelled = false
+    const unlock = () => {
+      ensureCountdownAudio()
+        .then((ready) => {
+          if (ready && !cancelled) {
+            setCountdownSoundReady(true)
+            window.removeEventListener('pointerdown', unlock)
+            window.removeEventListener('keydown', unlock)
+            window.removeEventListener('touchstart', unlock)
+          }
+        })
+        .catch(() => {
+          /* ignore */
+        })
+    }
+    window.addEventListener('pointerdown', unlock, { passive: true })
+    window.addEventListener('keydown', unlock, { passive: true })
+    window.addEventListener('touchstart', unlock, { passive: true })
+    return () => {
+      cancelled = true
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+      window.removeEventListener('touchstart', unlock)
+    }
+  }, [countdownSoundReady, ensureCountdownAudio])
 
   useEffect(() => {
     loadCurrentState()
@@ -434,6 +589,10 @@ function PlayerPlay() {
               {countdownValue > 0 ? countdownValue : 'Старт!'}
             </span>
           </div>
+        )}
+
+        {countdownValue !== null && !gameFinished && !countdownSoundReady && (
+          <div className={styles.soundHint}>Нажмите на экран, чтобы включить звук отсчёта.</div>
         )}
 
         {loading && <div className={styles.stateBox}>Загружаем вопросы…</div>}

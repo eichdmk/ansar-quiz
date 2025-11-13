@@ -69,6 +69,17 @@
   text-transform: uppercase;
 }
 
+.soundHint {
+  font-size: 13px;
+  color: #45607f;
+  background: rgba(255, 193, 7, 0.18);
+  border: 1px solid rgba(255, 193, 7, 0.32);
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin: 0 auto;
+  max-width: 320px;
+}
+
 .questionBlock {
   display: flex;
   flex-direction: column;
