@@ -139,6 +139,13 @@
   box-shadow: 0 16px 28px rgba(15, 56, 95, 0.08);
 }
 
+.cardInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
 .cardRunning {
   border-color: rgba(76, 175, 80, 0.4);
   box-shadow: 0 20px 34px rgba(76, 175, 80, 0.15);
@@ -255,6 +262,52 @@
   color: #496182;
 }
 
+.answerStats {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 152, 0, 0.12);
+  border: 1px solid rgba(255, 152, 0, 0.24);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #8a4c00;
+}
+
+.cardRunning .answerStats {
+  background: rgba(255, 138, 101, 0.12);
+  border-color: rgba(255, 112, 67, 0.26);
+  color: #8a2f0a;
+}
+
+.answerStatsTitle {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: inherit;
+}
+
+.answerStatsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.answerStatsWrong {
+  color: #d84315;
+}
+
+.answerStatsAnswered {
+  color: #5d4037;
+}
+
+.answerStatsPending {
+  color: #1b5e20;
+}
+
 .cardActions {
   display: flex;
   gap: 10px;
@@ -317,6 +370,10 @@
   .card {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .answerStats {
+    width: 100%;
   }
 
   .cardActions {

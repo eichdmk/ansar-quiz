@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector, useAsyncStatus } from '../../app/hooks.js'
 import {
@@ -16,6 +16,8 @@ import {
   selectGamesState,
   selectGamesStatus,
 } from '../../features/games/gamesSlice.js'
+import { fetchPlayers } from '../../api/players.js'
+import { useSocket } from '../../app/SocketProvider.jsx'
 import styles from './Dashboard.module.css'
 
 const PlusIcon = () => (
@@ -40,6 +42,7 @@ const TrashIcon = () => (
 function Dashboard() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
+  const socket = useSocket()
   const games = useAppSelector(selectGames)
   const gamesState = useAppSelector(selectGamesState)
   const loadStatus = useAppSelector(selectGamesStatus)
@@ -49,12 +52,215 @@ function Dashboard() {
   const [name, setName] = useState('')
   const [localError, setLocalError] = useState(null)
   const [pendingGameId, setPendingGameId] = useState(null)
+  const [answerStats, setAnswerStats] = useState({})
+  const trackedGameIdsRef = useRef(new Set())
+  const isMountedRef = useRef(true)
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false
+    },
+    [],
+  )
+
+  const refreshPlayers = useCallback(async (gameId) => {
+    const normalizedId = Number(gameId)
+    if (!normalizedId || Number.isNaN(normalizedId)) {
+      return
+    }
+    try {
+      const data = await fetchPlayers(normalizedId)
+      if (!isMountedRef.current) {
+        return
+      }
+      const totalPlayers = data?.items?.length ?? data?.total ?? 0
+      setAnswerStats((prev) => {
+        const previous = prev[normalizedId] ?? { totalPlayers: 0, answers: {} }
+        return {
+          ...prev,
+          [normalizedId]: {
+            ...previous,
+            totalPlayers,
+            answers: previous.answers ?? {},
+          },
+        }
+      })
+    } catch {
+      // пропускаем ошибки загрузки статистики игроков
+    }
+  }, [])
+
+  const resetAnswers = useCallback((gameId) => {
+    const normalizedId = Number(gameId)
+    if (!normalizedId || Number.isNaN(normalizedId)) {
+      return
+    }
+    setAnswerStats((prev) => {
+      const previous = prev[normalizedId]
+      if (!previous) {
+        return {
+          ...prev,
+          [normalizedId]: {
+            totalPlayers: 0,
+            answers: {},
+          },
+        }
+      }
+      return {
+        ...prev,
+        [normalizedId]: {
+          ...previous,
+          answers: {},
+        },
+      }
+    })
+  }, [])
+
+  const clearStatsForGame = useCallback((gameId) => {
+    const normalizedId = Number(gameId)
+    if (!normalizedId || Number.isNaN(normalizedId)) {
+      return
+    }
+    setAnswerStats((prev) => {
+      if (!prev[normalizedId]) {
+        return prev
+      }
+      const next = { ...prev }
+      delete next[normalizedId]
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    const activeGames = games.filter(
+      (game) => game.status === 'running' || game.status === 'ready',
+    )
+    trackedGameIdsRef.current = new Set(activeGames.map((game) => Number(game.id)))
+    setAnswerStats((prev) => {
+      let changed = false
+      const next = {}
+      activeGames.forEach((game) => {
+        const key = Number(game.id)
+        if (prev[key]) {
+          next[key] = prev[key]
+        } else {
+          changed = true
+        }
+      })
+      if (!changed && Object.keys(prev).length === Object.keys(next).length) {
+        return prev
+      }
+      return next
+    })
+    activeGames.forEach((game) => {
+      refreshPlayers(game.id)
+    })
+  }, [games, refreshPlayers])
 
   useEffect(() => {
     if (loadStatus === 'idle') {
       dispatch(loadGames())
     }
   }, [dispatch, loadStatus])
+
+  useEffect(() => {
+    if (!socket) {
+      return undefined
+    }
+
+    const handlePlayerAnswer = (payload) => {
+      const gameId = Number(payload?.gameId)
+      const playerId = payload?.playerId ?? payload?.id
+      if (!gameId || !playerId) {
+        return
+      }
+      setAnswerStats((prev) => {
+        const previous = prev[gameId] ?? { totalPlayers: 0, answers: {} }
+        return {
+          ...prev,
+          [gameId]: {
+            ...previous,
+            answers: {
+              ...previous.answers,
+              [String(playerId)]: {
+                isCorrect: Boolean(payload.isCorrect),
+              },
+            },
+          },
+        }
+      })
+    }
+
+    const handlePlayerJoined = (payload) => {
+      const gameId = Number(payload?.gameId)
+      if (!gameId) {
+        return
+      }
+      refreshPlayers(gameId)
+    }
+
+    const handlePlayerLeft = () => {
+      trackedGameIdsRef.current.forEach((gameId) => {
+        refreshPlayers(gameId)
+      })
+    }
+
+    const handleQuestionOpened = (payload) => {
+      const gameId = Number(payload?.gameId)
+      if (!gameId) {
+        return
+      }
+      resetAnswers(gameId)
+    }
+
+    const handleGameStarted = (payload) => {
+      const gameId = Number(payload?.gameId)
+      if (!gameId) {
+        return
+      }
+      refreshPlayers(gameId)
+      resetAnswers(gameId)
+    }
+
+    const handleGameOpened = (payload) => {
+      const gameId = Number(payload?.gameId)
+      if (!gameId) {
+        return
+      }
+      refreshPlayers(gameId)
+      resetAnswers(gameId)
+    }
+
+    const handleGameFinished = (payload) => {
+      const gameId = Number(payload?.gameId)
+      if (!gameId) {
+        return
+      }
+      clearStatsForGame(gameId)
+    }
+
+    socket.on('player:answer', handlePlayerAnswer)
+    socket.on('player:joined', handlePlayerJoined)
+    socket.on('player:left', handlePlayerLeft)
+    socket.on('game:questionOpened', handleQuestionOpened)
+    socket.on('game:started', handleGameStarted)
+    socket.on('game:opened', handleGameOpened)
+    socket.on('game:finished', handleGameFinished)
+    socket.on('game:stopped', handleGameFinished)
+    socket.on('game:closed', handleGameFinished)
+
+    return () => {
+      socket.off('player:answer', handlePlayerAnswer)
+      socket.off('player:joined', handlePlayerJoined)
+      socket.off('player:left', handlePlayerLeft)
+      socket.off('game:questionOpened', handleQuestionOpened)
+      socket.off('game:started', handleGameStarted)
+      socket.off('game:opened', handleGameOpened)
+      socket.off('game:finished', handleGameFinished)
+      socket.off('game:stopped', handleGameFinished)
+      socket.off('game:closed', handleGameFinished)
+    }
+  }, [socket, refreshPlayers, resetAnswers, clearStatsForGame])
 
   const handleCreate = (event) => {
     event.preventDefault()
@@ -208,124 +414,163 @@ function Dashboard() {
 
         {!isLoading && !isError && games.length > 0 && (
           <div className={styles.list}>
-            {games.map((game) => (
-              <article
-                key={game.id}
-                className={`${styles.card} ${
-                  game.status === 'running'
-                    ? styles.cardRunning
-                    : game.status === 'finished'
-                    ? styles.cardFinished
-                    : game.status === 'ready'
-                    ? styles.cardReady
-                    : ''
-                }`}
-              >
-                <div className={styles.cardInfo}>
-                  <div className={styles.cardHeaderRow}>
-                    <h3>{game.name}</h3>
-                    <span className={`${styles.statusBadge} ${styles[`status_${game.status}`]}`}>
-                      {game.status === 'running'
-                        ? 'В процессе'
-                        : game.status === 'finished'
-                        ? 'Завершена'
+            {games.map((game) => {
+              const stats = answerStats[Number(game.id)] ?? { totalPlayers: 0, answers: {} }
+              const totalPlayersInGame = stats.totalPlayers ?? 0
+              const answersRecord = stats.answers ?? {}
+              const answeredCount = Object.keys(answersRecord).length
+              const wrongCount = Object.values(answersRecord).filter(
+                (item) => item && item.isCorrect === false,
+              ).length
+              const pendingCount = Math.max(totalPlayersInGame - answeredCount, 0)
+              const shouldShowAnswerStats =
+                game.status === 'running' && (totalPlayersInGame > 0 || answeredCount > 0)
+
+              return (
+                <article
+                  key={game.id}
+                  className={`${styles.card} ${
+                    game.status === 'running'
+                      ? styles.cardRunning
+                      : game.status === 'finished'
+                        ? styles.cardFinished
                         : game.status === 'ready'
-                        ? 'Комната открыта'
-                        : 'Черновик'}
+                          ? styles.cardReady
+                          : ''
+                  }`}
+                >
+                  <div className={styles.cardInfo}>
+                    <div className={styles.cardHeaderRow}>
+                      <h3>{game.name}</h3>
+                      <span className={`${styles.statusBadge} ${styles[`status_${game.status}`]}`}>
+                        {game.status === 'running'
+                          ? 'В процессе'
+                          : game.status === 'finished'
+                            ? 'Завершена'
+                            : game.status === 'ready'
+                              ? 'Комната открыта'
+                              : 'Черновик'}
+                      </span>
+                    </div>
+                    <span className={styles.cardMeta}>
+                      Создано{' '}
+                      {new Intl.DateTimeFormat('ru-RU', {
+                        day: '2-digit',
+                        month: 'long',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }).format(new Date(game.created_at))}
                     </span>
+                    {game.status === 'ready' && totalPlayersInGame > 0 && (
+                      <div className={styles.answerStats}>
+                        <span className={styles.answerStatsTitle}>Игроков в комнате</span>
+                        <div className={styles.answerStatsRow}>
+                          <span className={styles.answerStatsAnswered}>{totalPlayersInGame}</span>
+                        </div>
+                      </div>
+                    )}
+                    {shouldShowAnswerStats && (
+                      <div className={styles.answerStats}>
+                        <span className={styles.answerStatsTitle}>Ответы текущего вопроса</span>
+                        <div className={styles.answerStatsRow}>
+                          <span className={styles.answerStatsWrong}>
+                            Неверных: {wrongCount} из {Math.max(totalPlayersInGame, 0)}
+                          </span>
+                          <span className={styles.answerStatsAnswered}>
+                            Ответили: {answeredCount} / {Math.max(totalPlayersInGame, 0)}
+                          </span>
+                          {pendingCount > 0 && (
+                            <span className={styles.answerStatsPending}>
+                              Не ответили: {pendingCount}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <span className={styles.cardMeta}>
-                    Создано{' '}
-                    {new Intl.DateTimeFormat('ru-RU', {
-                      day: '2-digit',
-                      month: 'long',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    }).format(new Date(game.created_at))}
-                  </span>
-                </div>
-                <div className={styles.cardActions}>
-                  <button
-                    type="button"
-                    className={styles.primaryButton}
-                    onClick={() => navigate(`/admin/game/${game.id}`)}
-                    disabled={pendingGameId === game.id}
-                  >
-                    Вопросы
-                  </button>
-                  {game.status === 'draft' && (
+                  <div className={styles.cardActions}>
                     <button
                       type="button"
                       className={styles.primaryButton}
-                      onClick={() => handleOpen(game)}
+                      onClick={() => navigate(`/admin/game/${game.id}`)}
                       disabled={pendingGameId === game.id}
                     >
-                      Открыть комнату
+                      Вопросы
                     </button>
-                  )}
-                  {game.status === 'ready' && (
-                    <button
-                      type="button"
-                      className={styles.successButton}
-                      onClick={() => handleLaunch(game)}
-                      disabled={pendingGameId === game.id}
-                    >
-                      Запустить
-                    </button>
-                  )}
-                  {game.status === 'ready' && (
+                    {game.status === 'draft' && (
+                      <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => handleOpen(game)}
+                        disabled={pendingGameId === game.id}
+                      >
+                        Открыть комнату
+                      </button>
+                    )}
+                    {game.status === 'ready' && (
+                      <button
+                        type="button"
+                        className={styles.successButton}
+                        onClick={() => handleLaunch(game)}
+                        disabled={pendingGameId === game.id}
+                      >
+                        Запустить
+                      </button>
+                    )}
+                    {game.status === 'ready' && (
+                      <button
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={() => handleCancelLobby(game)}
+                        disabled={pendingGameId === game.id}
+                      >
+                        Отменить комнату
+                      </button>
+                    )}
+                    {game.status === 'running' && (
+                      <button
+                        type="button"
+                        className={styles.warningButton}
+                        onClick={() => handleStop(game)}
+                        disabled={pendingGameId === game.id}
+                      >
+                        Завершить
+                      </button>
+                    )}
+                    {game.status === 'running' && (
+                      <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => handleNextQuestion(game)}
+                        disabled={pendingGameId === game.id}
+                      >
+                        Следующий вопрос
+                      </button>
+                    )}
+                    {game.status === 'finished' && (
+                      <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => handleRestart(game)}
+                        disabled={pendingGameId === game.id}
+                      >
+                        Перезапустить игру
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={styles.secondaryButton}
-                      onClick={() => handleCancelLobby(game)}
-                      disabled={pendingGameId === game.id}
+                      onClick={() => handleDelete(game.id)}
+                      disabled={game.status === 'running' || pendingGameId === game.id}
                     >
-                      Отменить комнату
+                      <TrashIcon />
+                      Удалить
                     </button>
-                  )}
-                  {game.status === 'running' && (
-                    <button
-                      type="button"
-                      className={styles.warningButton}
-                      onClick={() => handleStop(game)}
-                      disabled={pendingGameId === game.id}
-                    >
-                      Завершить
-                    </button>
-                  )}
-                  {game.status === 'running' && (
-                    <button
-                      type="button"
-                      className={styles.primaryButton}
-                      onClick={() => handleNextQuestion(game)}
-                      disabled={pendingGameId === game.id}
-                    >
-                      Следующий вопрос
-                    </button>
-                  )}
-                  {game.status === 'finished' && (
-                    <button
-                      type="button"
-                      className={styles.primaryButton}
-                      onClick={() => handleRestart(game)}
-                      disabled={pendingGameId === game.id}
-                    >
-                      Перезапустить игру
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={styles.secondaryButton}
-                    onClick={() => handleDelete(game.id)}
-                    disabled={game.status === 'running' || pendingGameId === game.id}
-                  >
-                    <TrashIcon />
-                    Удалить
-                  </button>
-                </div>
-              </article>
-            ))}
+                  </div>
+                </article>
+              )
+            })}
           </div>
         )}
       </section>
