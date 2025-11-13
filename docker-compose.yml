@@ -1,0 +1,97 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ansar_quiz}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-ansar_quiz}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - backend/.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      NODE_ENV: production
+      DB_MAX_RETRIES: 30
+      DB_RETRY_DELAY_MS: 2000
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - backend-uploads:/usr/src/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/nginx/Dockerfile
+      args:
+        VITE_API_URL: ${PUBLIC_API_URL:-https://localhost/api}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      SERVER_NAME: ${SERVER_NAME:-_}
+      BACKEND_HOST: backend
+      BACKEND_PORT: 3000
+      SSL_CERT_PATH: ${SSL_CERT_PATH:-/etc/ssl/private/server.crt}
+      SSL_KEY_PATH: ${SSL_KEY_PATH:-/etc/ssl/private/server.key}
+      ACME_CHALLENGE_ROOT: /var/www/certbot
+      ENABLE_SELF_SIGNED_CERTS: ${ENABLE_SELF_SIGNED_CERTS:-false}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/certs:/etc/ssl/private
+      - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+
+  certbot:
+    image: certbot/certbot:latest
+    profiles:
+      - certbot
+    volumes:
+      - ./infra/certs:/etc/ssl/private
+      - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: ""
+    command: >-
+      sh -c "\
+        certbot certonly \
+          --webroot -w /var/www/certbot \
+          --email ${LETSENCRYPT_EMAIL:?set LETSENCRYPT_EMAIL in .env file} \
+          --agree-tos --no-eff-email \
+          -d ${SERVER_NAME:?set SERVER_NAME in .env file} \
+          --rsa-key-size 4096 \
+          --deploy-hook \"cp /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem /etc/ssl/private/server.crt && cp /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem /etc/ssl/private/server.key\" \
+      "
+    depends_on:
+      - web
+
+volumes:
+  postgres-data:
+  backend-uploads:
+  letsencrypt:
+  certbot-www:
+  

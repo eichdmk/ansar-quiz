@@ -174,7 +174,7 @@ function Dashboard() {
             type="text"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Например: Фронтенд разработка — модуль 1"
+            placeholder="Например: Топ 5 причин почему js лучше пайтона"
           />
         </label>
         {(localError || globalError) && (

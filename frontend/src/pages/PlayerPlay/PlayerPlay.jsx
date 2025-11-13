@@ -175,7 +175,7 @@ function PlayerPlay() {
 
   useEffect(() => {
     if (!player) {
-      return () => {}
+      return () => { }
     }
 
     const handleQuestionOpened = (payload) => {
@@ -452,13 +452,13 @@ function PlayerPlay() {
                 <button
                   key={answer.id}
                   type="button"
-                  className={`${styles.answerButton} ${
-                    selectedAnswer === answer.id ? styles.answerSelected : ''
-                  }`}
+                  className={`${styles.answerButton} ${selectedAnswer === answer.id ? styles.answerSelected : ''
+                    }`}
                   onClick={() => handleSelectAnswer(answer.id)}
                   disabled={sending || questionClosed || attemptLocked}
                 >
-                  {answer.text}
+                  <span>{answer.text}</span>
+
                 </button>
               ))}
             </div>

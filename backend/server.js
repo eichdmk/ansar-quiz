@@ -41,6 +41,12 @@ await app.register(fastifyStatic, {
   prefix: '/uploads/',
 })
 
+app.get('/healthz', async () => ({
+  status: 'ok',
+  uptime: process.uptime(),
+  timestamp: new Date().toISOString(),
+}))
+
 app.decorate('pg', pool)
 app.decorate('io', null)
 

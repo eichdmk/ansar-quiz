@@ -25,10 +25,10 @@ function AdminLogin() {
   const location = useLocation()
   const { token, status, error } = useAppSelector(selectAuth)
 
-  const [form, setForm] = useState({
+  const[form, setForm] = useState({
     username: '',
-    password: '',
-  })
+    password: ''
+    })
 
   useEffect(() => {
     if (token) {

@@ -1,0 +1,17 @@
+.git
+.gitignore
+node_modules
+**/node_modules
+**/.env
+**/.DS_Store
+frontend/dist
+backend/uploads
+infra/certs
+ops/nginx/certs
+npm-debug.log
+yarn-error.log
+pnpm-lock.yaml
+dist
+**/dist
+*.local
+*.env
