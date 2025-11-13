@@ -284,3 +284,172 @@ export async function updateQuestion(request, reply) {
     client.release()
   }
 }
+
+function prepareImportedQuestions(raw) {
+  if (!Array.isArray(raw)) {
+    throw new Error('Передайте массив вопросов')
+  }
+  if (raw.length === 0) {
+    return []
+  }
+  return raw.map((item, index) => {
+    if (!item || typeof item !== 'object') {
+      throw new Error(`Вопрос №${index + 1} имеет некорректный формат`)
+    }
+    const text = sanitizeText(item.text)
+    if (!text) {
+      throw new Error(`Вопрос №${index + 1}: укажите текст вопроса`)
+    }
+    const imageUrl = typeof item.imageUrl === 'string' && item.imageUrl.trim().length > 0 ? item.imageUrl.trim() : null
+    const answers = sanitizeAnswers(item.answers)
+    if (answers.length < 2) {
+      throw new Error(`Вопрос "${text}": добавьте минимум два варианта ответа`)
+    }
+    if (!answers.some((answer) => answer.isTrue)) {
+      throw new Error(`Вопрос "${text}": отметьте правильный ответ`)
+    }
+    return {
+      text,
+      imageUrl,
+      answers,
+    }
+  })
+}
+
+export async function importQuestions(request, reply) {
+  const { gameId, questions } = request.body ?? {}
+  const preparedGameId = Number(gameId)
+  if (Number.isNaN(preparedGameId)) {
+    reply.code(400).send({ message: 'Некорректный идентификатор квиза' })
+    return
+  }
+
+  let preparedQuestions
+  try {
+    preparedQuestions = prepareImportedQuestions(questions)
+  } catch (error) {
+    reply.code(400).send({ message: error.message ?? 'Некорректные данные' })
+    return
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    const gameResult = await client.query('SELECT id, name FROM games WHERE id = $1', [preparedGameId])
+    if (gameResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(404).send({ message: 'Квиз не найден' })
+      return
+    }
+
+    await client.query('DELETE FROM questions WHERE game_id = $1', [preparedGameId])
+
+    const insertedQuestions = []
+    for (let index = 0; index < preparedQuestions.length; index += 1) {
+      const current = preparedQuestions[index]
+      const questionResult = await client.query(
+        'INSERT INTO questions (question_text, game_id, image_url, position) VALUES ($1, $2, $3, $4) RETURNING id, question_text, image_url, created_at, position',
+        [current.text, preparedGameId, current.imageUrl, index + 1],
+      )
+      const questionRow = questionResult.rows[0]
+      const createdAnswers = []
+      for (const answer of current.answers) {
+        const answerResult = await client.query(
+          'INSERT INTO answers (question_id, answer_text, is_true) VALUES ($1, $2, $3) RETURNING id, answer_text, is_true',
+          [questionRow.id, answer.text, answer.isTrue],
+        )
+        createdAnswers.push({
+          id: answerResult.rows[0].id,
+          text: answerResult.rows[0].answer_text,
+          isTrue: answerResult.rows[0].is_true,
+        })
+      }
+      insertedQuestions.push({
+        id: questionRow.id,
+        text: questionRow.question_text,
+        imageUrl: questionRow.image_url,
+        createdAt: questionRow.created_at,
+        position: questionRow.position,
+        answers: createdAnswers,
+      })
+    }
+
+    await client.query('COMMIT')
+
+    reply.send({
+      gameId: preparedGameId,
+      total: insertedQuestions.length,
+      questions: insertedQuestions,
+    })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    request.log.error(error)
+    reply.code(500).send({ message: 'Не удалось импортировать вопросы' })
+  } finally {
+    client.release()
+  }
+}
+
+export async function exportQuestions(request, reply) {
+  const gameIdFromParams = request.params?.gameId
+  const gameIdFromQuery = request.query?.gameId
+  const preparedGameId = Number(gameIdFromParams ?? gameIdFromQuery)
+  if (Number.isNaN(preparedGameId)) {
+    reply.code(400).send({ message: 'Не передан gameId' })
+    return
+  }
+
+  try {
+    const gameResult = await pool.query('SELECT id, name FROM games WHERE id = $1', [preparedGameId])
+    if (gameResult.rowCount === 0) {
+      reply.code(404).send({ message: 'Квиз не найден' })
+      return
+    }
+
+    const questionsResult = await pool.query(
+      'SELECT id, question_text, image_url, created_at, position FROM questions WHERE game_id = $1 ORDER BY position ASC, created_at ASC',
+      [preparedGameId],
+    )
+    const questionIds = questionsResult.rows.map((item) => item.id)
+    let answersMap = new Map()
+
+    if (questionIds.length > 0) {
+      const answersResult = await pool.query(
+        'SELECT id, question_id, answer_text, is_true FROM answers WHERE question_id = ANY($1::int[]) ORDER BY id ASC',
+        [questionIds],
+      )
+      answersMap = answersResult.rows.reduce((acc, row) => {
+        const current = acc.get(row.question_id) ?? []
+        current.push({
+          id: row.id,
+          text: row.answer_text,
+          isTrue: row.is_true,
+        })
+        acc.set(row.question_id, current)
+        return acc
+      }, new Map())
+    }
+
+    const questions = questionsResult.rows.map((question) => ({
+      id: question.id,
+      text: question.question_text,
+      imageUrl: question.image_url,
+      createdAt: question.created_at,
+      position: question.position,
+      answers: answersMap.get(question.id) ?? [],
+    }))
+
+    reply
+      .header('Content-Type', 'application/json; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="questions-game-${preparedGameId}.json"`)
+      .send({
+        gameId: preparedGameId,
+        gameName: gameResult.rows[0].name,
+        questions,
+      })
+  } catch (error) {
+    request.log.error(error)
+    reply.code(500).send({ message: 'Не удалось экспортировать вопросы' })
+  }
+}

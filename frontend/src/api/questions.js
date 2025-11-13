@@ -17,3 +17,16 @@ export const updateQuestion = async (id, payload) => {
 
 export const deleteQuestion = async (id) => http.delete(`/questions/${id}`)
 
+export const importQuestionsFromJson = async (gameId, questions) => {
+  const response = await http.post('/questions/import', {
+    gameId,
+    questions,
+  })
+  return response.data
+}
+
+export const exportQuestionsToJson = async (gameId) => {
+  const response = await http.get(`/questions/export/${gameId}`)
+  return response.data
+}
+

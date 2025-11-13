@@ -42,6 +42,39 @@
   font-size: 15px;
 }
 
+.toolsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.toolButton {
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(33, 150, 243, 0.24);
+  background: rgba(33, 150, 243, 0.08);
+  color: #1c6ed6;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.toolButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.toolButton:not(:disabled):hover {
+  background: rgba(33, 150, 243, 0.16);
+  transform: translateY(-1px);
+}
+
+.hiddenInput {
+  display: none;
+}
+
 .formCard {
   background: #ffffff;
   padding: 26px;

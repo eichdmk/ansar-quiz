@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   addQuestion,
@@ -12,6 +12,7 @@ import {
 import { useAppDispatch, useAppSelector, useAsyncStatus } from '../../app/hooks.js'
 import { selectGames } from '../../features/games/gamesSlice.js'
 import { uploadQuestionImage } from '../../api/uploads.js'
+import { importQuestionsFromJson, exportQuestionsToJson } from '../../api/questions.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './GameQuestions.module.css'
 
@@ -68,6 +69,9 @@ function GameQuestions() {
   const [isUploading, setIsUploading] = useState(false)
   const [editingQuestionId, setEditingQuestionId] = useState(null)
   const [localError, setLocalError] = useState(null)
+  const importInputRef = useRef(null)
+  const [isImporting, setIsImporting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
     if (gameId) {
@@ -198,6 +202,81 @@ function GameQuestions() {
     setImageUrl('')
   }
 
+  const handleExportJson = async () => {
+    if (!gameId) {
+      return
+    }
+    setLocalError(null)
+    setIsExporting(true)
+    try {
+      const payload = await exportQuestionsToJson(Number(gameId))
+      const fileName = `questions-game-${gameId}.json`
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      const message =
+        err.response?.data?.message ?? err.message ?? 'Не удалось экспортировать вопросы'
+      setLocalError(message)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleImportJsonClick = () => {
+    importInputRef.current?.click()
+  }
+
+  const handleImportJsonChange = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+    setIsImporting(true)
+    setLocalError(null)
+    try {
+      const text = await file.text()
+      let parsed
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        throw new Error('Файл содержит некорректный JSON')
+      }
+      const fileGameId = Number(parsed?.gameId ?? gameId)
+      if (!Number.isNaN(parsed?.gameId) && fileGameId !== Number(gameId)) {
+        throw new Error('JSON предназначен для другого квиза')
+      }
+      const questionsFromFile = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.questions)
+          ? parsed.questions
+          : Array.isArray(parsed?.items)
+            ? parsed.items
+            : null
+      if (!Array.isArray(questionsFromFile)) {
+        throw new Error('Не удалось найти список вопросов в файле')
+      }
+      await importQuestionsFromJson(Number(gameId), questionsFromFile)
+      await dispatch(loadQuestions(Number(gameId)))
+      resetForm()
+    } catch (err) {
+      const message =
+        err.response?.data?.message ?? err.message ?? 'Не удалось импортировать вопросы'
+      setLocalError(message)
+    } finally {
+      setIsImporting(false)
+      if (event.target) {
+        event.target.value = ''
+      }
+    }
+  }
+
   const startEditQuestion = (question) => {
     setEditingQuestionId(question.id)
     setQuestionText(question.text ?? '')
@@ -231,6 +310,32 @@ function GameQuestions() {
           <p>{currentGame?.name ?? 'Квиз'}</p>
         </div>
       </header>
+
+      <div className={styles.toolsRow}>
+        <button
+          type="button"
+          className={styles.toolButton}
+          onClick={handleExportJson}
+          disabled={isExporting}
+        >
+          {isExporting ? 'Скачиваем…' : 'Экспорт JSON'}
+        </button>
+        <button
+          type="button"
+          className={styles.toolButton}
+          onClick={handleImportJsonClick}
+          disabled={isImporting}
+        >
+          {isImporting ? 'Импортируем…' : 'Импорт JSON'}
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json"
+          className={styles.hiddenInput}
+          onChange={handleImportJsonChange}
+        />
+      </div>
 
       <section className={styles.formCard}>
         <div className={styles.formHeader}>
