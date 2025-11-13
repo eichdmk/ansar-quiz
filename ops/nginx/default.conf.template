@@ -96,10 +96,10 @@ server {
     }
 
     location ~* \.(?:gif|jpg|jpeg|png|svg|webp|woff2?|ttf|js|css|map)$ {
+        root /usr/share/nginx/html;
         access_log off;
         expires 7d;
         try_files $uri =404;
-        add_header Content-Type "";
     }
 }
 
