@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../app/hooks.js'
-import { selectPlayer, resetPlayer, mergePlayer } from '../../features/player/playerSlice.js'
+import { selectPlayer, resetPlayer } from '../../features/player/playerSlice.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
 import { submitAnswer } from '../../api/playerAnswers.js'
 import { fetchCurrentQuestion } from '../../api/games.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './PlayerPlay.module.css'
-
-const COUNTDOWN_SOUND_URL = '/sounds/race-countdown-beeps-04-sound-effect-33364869.mp3'
 
 const LightningIcon = () => (
   <svg
@@ -41,14 +39,10 @@ function PlayerPlay() {
   const [questionClosed, setQuestionClosed] = useState(false)
   const [attemptLocked, setAttemptLocked] = useState(false)
   const [countdownValue, setCountdownValue] = useState(null)
-  const [countdownSoundReady, setCountdownSoundReady] = useState(false)
   const countdownAudioRef = useRef({
     context: null,
-    buffer: null,
     lastValue: null,
     disabled: false,
-    loading: false,
-    hasPlayed: false,
   })
 
   const avatarPalette = useMemo(
@@ -180,100 +174,78 @@ function PlayerPlay() {
       })
   }, [player, applyQuestion, completeGame])
 
-  const ensureCountdownAudio = useCallback(async () => {
+  const getOrCreateAudioContext = useCallback(() => {
     if (typeof window === 'undefined' || countdownAudioRef.current.disabled) {
-      return false
+      return null
     }
     const AudioContextConstructor = window.AudioContext || window.webkitAudioContext
     if (!AudioContextConstructor) {
       countdownAudioRef.current.disabled = true
-      return false
+      return null
     }
     let context = countdownAudioRef.current.context
     if (!context) {
       context = new AudioContextConstructor()
       countdownAudioRef.current.context = context
+      const resumeContext = () => {
+        if (context.state === 'suspended') {
+          context.resume().catch(() => {})
+        }
+      }
+      const resumeEvents = ['click', 'touchstart', 'keydown']
+      resumeEvents.forEach((eventName) => {
+        window.addEventListener(eventName, resumeContext, { once: true })
+      })
     }
     if (context.state === 'suspended') {
-      try {
-        await context.resume()
-      } catch {
-        // ignore resume failures until a user gesture resumes the context
-      }
+      context.resume().catch(() => {})
     }
-    if (!countdownAudioRef.current.buffer && !countdownAudioRef.current.loading) {
-      countdownAudioRef.current.loading = true
-      try {
-        const response = await fetch(COUNTDOWN_SOUND_URL)
-        const arrayBuffer = await response.arrayBuffer()
-        const audioBuffer = await context.decodeAudioData(arrayBuffer)
-        countdownAudioRef.current.buffer = audioBuffer
-      } catch (error) {
-        console.error('Не удалось загрузить звук отсчёта', error)
-        countdownAudioRef.current.disabled = true
-        countdownAudioRef.current.loading = false
-        return false
-      }
-      countdownAudioRef.current.loading = false
-    }
-    return Boolean(countdownAudioRef.current.buffer)
+    return context
   }, [])
 
   const playCountdownTone = useCallback(
-    async (value) => {
+    (value) => {
       if (typeof value !== 'number' || value < 0) {
         return
       }
-      if (!countdownSoundReady) {
-        return
-      }
-      if (countdownAudioRef.current.hasPlayed) {
-        return
-      }
-      if (value < 1) {
-        return
-      }
-      const audioReady = await ensureCountdownAudio()
-      if (!audioReady) {
-        return
-      }
-      countdownAudioRef.current.hasPlayed = true
       if (countdownAudioRef.current.lastValue === value) {
         return
       }
-      countdownAudioRef.current.lastValue = value
-      const context = countdownAudioRef.current.context
-      const buffer = countdownAudioRef.current.buffer
-      if (!context || !buffer) {
+      const context = getOrCreateAudioContext()
+      if (!context) {
         return
       }
-      if (context.state === 'suspended') {
-        try {
-          await context.resume()
-        } catch {
-          return
-        }
-      }
-      const source = context.createBufferSource()
+      countdownAudioRef.current.lastValue = value
+      const oscillator = context.createOscillator()
       const gainNode = context.createGain()
-      source.buffer = buffer
-      source.playbackRate.value = value === 0 ? 1.1 : 1
-      gainNode.gain.value = value === 0 ? 0.8 : 0.6
-      source.connect(gainNode)
+      const now = context.currentTime
+      const duration = value === 0 ? 0.5 : 0.3
+      const frequencyBase = value === 0 ? 880 : 600
+      const frequencyStep = 120
+      const frequency = frequencyBase + Math.max(0, 5 - value) * frequencyStep
+
+      gainNode.gain.setValueAtTime(0.0001, now)
+      gainNode.gain.exponentialRampToValueAtTime(0.5, now + 0.02)
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration)
+
+      oscillator.type = 'sawtooth'
+      oscillator.frequency.setValueAtTime(frequency, now)
+      oscillator.connect(gainNode)
       gainNode.connect(context.destination)
-      source.start()
-      source.onended = () => {
-        source.disconnect()
+
+      oscillator.start(now)
+      oscillator.stop(now + duration)
+      oscillator.onended = () => {
+        oscillator.disconnect()
         gainNode.disconnect()
       }
     },
-    [countdownSoundReady, ensureCountdownAudio],
+    [getOrCreateAudioContext],
   )
 
   useEffect(() => {
     if (countdownValue === null) {
       countdownAudioRef.current.lastValue = null
-      countdownAudioRef.current.hasPlayed = false
       return
     }
     if (typeof countdownValue === 'number' && countdownValue >= 0) {
@@ -281,48 +253,17 @@ function PlayerPlay() {
     }
   }, [countdownValue, playCountdownTone])
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       const { context } = countdownAudioRef.current
       if (context && typeof context.close === 'function') {
         context.close().catch(() => {})
       }
       countdownAudioRef.current.context = null
-      countdownAudioRef.current.buffer = null
       countdownAudioRef.current.lastValue = null
-      countdownAudioRef.current.hasPlayed = false
-    }
-  }, [])
-
-  useEffect(() => {
-    if (countdownSoundReady || countdownAudioRef.current.disabled) {
-      return undefined
-    }
-    let cancelled = false
-    const unlock = () => {
-      ensureCountdownAudio()
-        .then((ready) => {
-          if (ready && !cancelled) {
-            setCountdownSoundReady(true)
-            window.removeEventListener('pointerdown', unlock)
-            window.removeEventListener('keydown', unlock)
-            window.removeEventListener('touchstart', unlock)
-          }
-        })
-        .catch(() => {
-          /* ignore */
-        })
-    }
-    window.addEventListener('pointerdown', unlock, { passive: true })
-    window.addEventListener('keydown', unlock, { passive: true })
-    window.addEventListener('touchstart', unlock, { passive: true })
-    return () => {
-      cancelled = true
-      window.removeEventListener('pointerdown', unlock)
-      window.removeEventListener('keydown', unlock)
-      window.removeEventListener('touchstart', unlock)
-    }
-  }, [countdownSoundReady, ensureCountdownAudio])
+    },
+    [],
+  )
 
   useEffect(() => {
     loadCurrentState()
@@ -427,20 +368,6 @@ function PlayerPlay() {
       }
     }
 
-    const handleScoreUpdated = (payload) => {
-      if (payload.gameId !== player.gameId || payload.id !== player.id) {
-        return
-      }
-      dispatch(
-        mergePlayer({
-          score: payload.score,
-          username: payload.username ?? player.username,
-          groupName: payload.groupName ?? player.groupName,
-          joinedAt: payload.joinedAt ?? player.joinedAt,
-        }),
-      )
-    }
-
     socket.on('game:questionOpened', handleQuestionOpened)
     socket.on('game:finished', handleGameFinished)
     socket.on('game:questionClosed', handleQuestionClosed)
@@ -448,7 +375,6 @@ function PlayerPlay() {
     socket.on('game:opened', handleGameOpened)
     socket.on('game:countdown', handleCountdown)
     socket.on('game:closed', handleGameClosed)
-    socket.on('player:scoreUpdated', handleScoreUpdated)
     if (!socket.connected) {
       socket.connect()
     }
@@ -461,9 +387,8 @@ function PlayerPlay() {
       socket.off('game:opened', handleGameOpened)
       socket.off('game:countdown', handleCountdown)
       socket.off('game:closed', handleGameClosed)
-      socket.off('player:scoreUpdated', handleScoreUpdated)
     }
-  }, [socket, player, applyQuestion, completeGame, dispatch])
+  }, [socket, player, applyQuestion, completeGame])
 
   const handleSelectAnswer = (answerId) => {
     if (gameFinished || !currentQuestion || questionClosed || attemptLocked) {
@@ -541,9 +466,6 @@ function PlayerPlay() {
     activeQuestionNumber && totalQuestions > 0
       ? Math.min(100, Math.round((activeQuestionNumber / totalQuestions) * 100))
       : 0
-  const correctAnswers = player?.score ?? 0
-  const scorePercent =
-    totalQuestions > 0 ? Math.min(100, Math.round((correctAnswers / totalQuestions) * 100)) : 0
 
   const statusTone = (() => {
     if (gameFinished) {
@@ -591,24 +513,13 @@ function PlayerPlay() {
         </div>
         <h1>{statusMessage}</h1>
 
-        {totalQuestions > 0 && !gameFinished && (
+        {totalQuestions > 0 && (
           <div className={styles.progressBar}>
             <div className={styles.progressTrack}>
               <div className={styles.progressFill} style={{ width: `${progressPercent}%` }} />
             </div>
             <span className={styles.progressLabel}>
               Вопрос {Math.min(activeQuestionNumber ?? 0, totalQuestions)} из {totalQuestions}
-            </span>
-          </div>
-        )}
-
-        {totalQuestions > 0 && gameFinished && (
-          <div className={styles.progressBar}>
-            <div className={styles.progressTrack}>
-              <div className={styles.progressFill} style={{ width: `${scorePercent}%` }} />
-            </div>
-            <span className={styles.progressLabel}>
-              Правильных ответов: {correctAnswers} из {totalQuestions}
             </span>
           </div>
         )}
@@ -620,7 +531,7 @@ function PlayerPlay() {
             </span>
           </div>
         )}
-        
+
         {loading && <div className={styles.stateBox}>Загружаем вопросы…</div>}
         {error && !loading && <div className={styles.stateBox}>{error}</div>}
 

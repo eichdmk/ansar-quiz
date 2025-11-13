@@ -149,6 +149,29 @@
   opacity: 0.7;
 }
 
+.answerResultCorrect,
+.answerResultWrong {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid;
+  font-weight: 600;
+  font-size: 15px;
+  text-align: center;
+}
+
+.answerResultCorrect {
+  background: rgba(33, 150, 243, 0.12);
+  border-color: rgba(33, 150, 243, 0.28);
+  color: #0b5cad;
+}
+
+.answerResultWrong {
+  background: rgba(234, 84, 85, 0.12);
+  border-color: rgba(234, 84, 85, 0.28);
+  color: #b71c1c;
+}
+
 .submitButton {
   align-self: flex-start;
   padding: 12px 18px;

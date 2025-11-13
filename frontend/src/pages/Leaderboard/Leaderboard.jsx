@@ -18,6 +18,7 @@ function Leaderboard() {
   const [error, setError] = useState(null)
   const [gameStatus, setGameStatus] = useState('waiting')
   const [countdownValue, setCountdownValue] = useState(null)
+  const [lastQuestionWinner, setLastQuestionWinner] = useState(null)
 
   useEffect(() => {
     setGamesLoading(true)
@@ -95,6 +96,7 @@ function Leaderboard() {
       }
       setGameStatus('running')
       setCountdownValue(null)
+      setLastQuestionWinner(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -110,6 +112,21 @@ function Leaderboard() {
       }
       setGameStatus('closed')
       setCountdownValue(null)
+      const winnerId =
+        payload?.winner?.id ??
+        payload?.winner?.playerId ??
+        payload?.winner?.player_id ??
+        payload?.winner?.playerID ??
+        null
+      if (winnerId !== null && winnerId !== undefined) {
+        setLastQuestionWinner({
+          id: winnerId,
+          username: payload.winner.username || payload.winner.name || null,
+          groupName: payload.winner.groupName || payload.winner.group || null,
+        })
+      } else {
+        setLastQuestionWinner(null)
+      }
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -125,6 +142,7 @@ function Leaderboard() {
       }
       setCountdownValue(null)
       setGameStatus('ready')
+      setLastQuestionWinner(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -140,6 +158,7 @@ function Leaderboard() {
       }
       setCountdownValue(payload.value)
       setGameStatus('countdown')
+      setLastQuestionWinner(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -155,6 +174,7 @@ function Leaderboard() {
       }
       setCountdownValue(null)
       setGameStatus('waiting')
+      setLastQuestionWinner(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -170,6 +190,7 @@ function Leaderboard() {
       }
       setGameStatus('running')
       setCountdownValue(null)
+      setLastQuestionWinner(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -263,6 +284,7 @@ function Leaderboard() {
         setError(err?.message ?? 'Не удалось загрузить участников')
       })
       .finally(() => setLoading(false))
+    setLastQuestionWinner(null)
   }, [selectedGameId])
 
   useEffect(() => {
@@ -457,6 +479,15 @@ function Leaderboard() {
           <div className={styles.stateBanner}>Ожидаем следующий вопрос…</div>
         )}
 
+        {lastQuestionWinner && (
+          <div className={styles.winnerBanner}>
+            <span>
+              {lastQuestionWinner.username || `ID ${lastQuestionWinner.id}`} ответил(а) правильно на последний
+              вопрос
+            </span>
+          </div>
+        )}
+
         {selectedGameId && loading && <div className={styles.stateBox}>Загружаем участников…</div>}
         {selectedGameId && error && !loading && <div className={styles.stateBox}>{error}</div>}
         {selectedGameId && !loading && !error && sortedPlayers.length === 0 && (
@@ -476,6 +507,11 @@ function Leaderboard() {
                 key={player.id}
                 className={`${styles.tableRow} ${
                   rowAnimations[player.id] ? styles[`row${rowAnimations[player.id]}`] : ''
+                } ${
+                  lastQuestionWinner?.id &&
+                  String(player.id) === String(lastQuestionWinner.id)
+                    ? styles.tableRowWinner
+                    : ''
                 }`}
                 style={{
                   ...getRowStyle(index),
@@ -523,7 +559,7 @@ function Leaderboard() {
                       loading="lazy"
                     />
                   </span>
-                  <span>
+                  <span style={{ display: 'flex', flexDirection: 'column' }}>
                     {index === 0 ? (
                       <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span role="img" aria-hidden="true">
@@ -533,6 +569,10 @@ function Leaderboard() {
                     ) : (
                       player.username
                     )}
+                    {lastQuestionWinner?.id &&
+                      String(player.id) === String(lastQuestionWinner.id) && (
+                        <span className={styles.winnerTag}>Ответил правильно на последний вопрос</span>
+                      )}
                   </span>
                 </span>
                 <span style={{ fontWeight: 500 }}>{player.groupName || '—'}</span>
