@@ -9,6 +9,7 @@ RUN rm -f /etc/apt/sources.list.d/* \
   && echo "deb http://mirror.yandex.ru/debian-security bookworm-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list \
   && apt-get update \
   && apt-get install -y --no-install-recommends \
+    bash \
     build-essential \
     python3 \
     libvips \
