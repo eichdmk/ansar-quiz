@@ -95,10 +95,11 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    location ~* \.(?:gif|jpg|jpeg|png|svg|webp|woff2?|ttf|js|css)$ {
+    location ~* \.(?:gif|jpg|jpeg|png|svg|webp|woff2?|ttf|js|css|map)$ {
         access_log off;
         expires 7d;
         try_files $uri =404;
+        add_header Content-Type "";
     }
 }
 
