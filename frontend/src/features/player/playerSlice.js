@@ -91,6 +91,16 @@ const playerSlice = createSlice({
       state.error = null
       clearPlayerFromStorage()
     },
+    mergePlayer(state, action) {
+      if (!state.player) {
+        return
+      }
+      state.player = {
+        ...state.player,
+        ...action.payload,
+      }
+      savePlayerToStorage(state.player)
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -110,7 +120,7 @@ const playerSlice = createSlice({
   },
 })
 
-export const { resetPlayer } = playerSlice.actions
+export const { resetPlayer, mergePlayer } = playerSlice.actions
 
 export const selectPlayerState = (state) => state.player
 export const selectPlayer = (state) => state.player.player

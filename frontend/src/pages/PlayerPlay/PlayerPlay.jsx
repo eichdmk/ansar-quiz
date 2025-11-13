@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../app/hooks.js'
-import { selectPlayer, resetPlayer } from '../../features/player/playerSlice.js'
+import { selectPlayer, resetPlayer, mergePlayer } from '../../features/player/playerSlice.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
 import { submitAnswer } from '../../api/playerAnswers.js'
 import { fetchCurrentQuestion } from '../../api/games.js'
@@ -427,6 +427,20 @@ function PlayerPlay() {
       }
     }
 
+    const handleScoreUpdated = (payload) => {
+      if (payload.gameId !== player.gameId || payload.id !== player.id) {
+        return
+      }
+      dispatch(
+        mergePlayer({
+          score: payload.score,
+          username: payload.username ?? player.username,
+          groupName: payload.groupName ?? player.groupName,
+          joinedAt: payload.joinedAt ?? player.joinedAt,
+        }),
+      )
+    }
+
     socket.on('game:questionOpened', handleQuestionOpened)
     socket.on('game:finished', handleGameFinished)
     socket.on('game:questionClosed', handleQuestionClosed)
@@ -434,6 +448,7 @@ function PlayerPlay() {
     socket.on('game:opened', handleGameOpened)
     socket.on('game:countdown', handleCountdown)
     socket.on('game:closed', handleGameClosed)
+    socket.on('player:scoreUpdated', handleScoreUpdated)
     if (!socket.connected) {
       socket.connect()
     }
@@ -446,8 +461,9 @@ function PlayerPlay() {
       socket.off('game:opened', handleGameOpened)
       socket.off('game:countdown', handleCountdown)
       socket.off('game:closed', handleGameClosed)
+      socket.off('player:scoreUpdated', handleScoreUpdated)
     }
-  }, [socket, player, applyQuestion, completeGame])
+  }, [socket, player, applyQuestion, completeGame, dispatch])
 
   const handleSelectAnswer = (answerId) => {
     if (gameFinished || !currentQuestion || questionClosed || attemptLocked) {
@@ -525,6 +541,9 @@ function PlayerPlay() {
     activeQuestionNumber && totalQuestions > 0
       ? Math.min(100, Math.round((activeQuestionNumber / totalQuestions) * 100))
       : 0
+  const correctAnswers = player?.score ?? 0
+  const scorePercent =
+    totalQuestions > 0 ? Math.min(100, Math.round((correctAnswers / totalQuestions) * 100)) : 0
 
   const statusTone = (() => {
     if (gameFinished) {
@@ -572,13 +591,24 @@ function PlayerPlay() {
         </div>
         <h1>{statusMessage}</h1>
 
-        {totalQuestions > 0 && (
+        {totalQuestions > 0 && !gameFinished && (
           <div className={styles.progressBar}>
             <div className={styles.progressTrack}>
               <div className={styles.progressFill} style={{ width: `${progressPercent}%` }} />
             </div>
             <span className={styles.progressLabel}>
               Вопрос {Math.min(activeQuestionNumber ?? 0, totalQuestions)} из {totalQuestions}
+            </span>
+          </div>
+        )}
+
+        {totalQuestions > 0 && gameFinished && (
+          <div className={styles.progressBar}>
+            <div className={styles.progressTrack}>
+              <div className={styles.progressFill} style={{ width: `${scorePercent}%` }} />
+            </div>
+            <span className={styles.progressLabel}>
+              Правильных ответов: {correctAnswers} из {totalQuestions}
             </span>
           </div>
         )}
@@ -590,11 +620,7 @@ function PlayerPlay() {
             </span>
           </div>
         )}
-
-        {countdownValue !== null && !gameFinished && !countdownSoundReady && (
-          <div className={styles.soundHint}>Нажмите на экран, чтобы включить звук отсчёта.</div>
-        )}
-
+        
         {loading && <div className={styles.stateBox}>Загружаем вопросы…</div>}
         {error && !loading && <div className={styles.stateBox}>{error}</div>}
 
