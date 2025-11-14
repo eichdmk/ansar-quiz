@@ -12,7 +12,7 @@ function clearCountdown(gameId) {
     countdownTimers.delete(gameId)
 }
 
-function scheduleCountdown(io, gameId, { question, total }) {
+function scheduleCountdown(io, gameId, { question, total, onComplete }) {
     if (!io) {
         return
     }
@@ -29,17 +29,22 @@ function scheduleCountdown(io, gameId, { question, total }) {
 
     const finalTimer = setTimeout(() => {
         io.emit('game:countdown', { gameId, value: 0 })
-        io.emit('game:started', {
-            gameId,
-            index: 0,
-            total,
-        })
-        emitQuestion(io, gameId, {
-            question,
-            index: 0,
-            total,
-            isClosed: false,
-        })
+        if (onComplete) {
+            onComplete()
+        } else {
+            // Старый код для обратной совместимости
+            io.emit('game:started', {
+                gameId,
+                index: 0,
+                total,
+            })
+            emitQuestion(io, gameId, {
+                question,
+                index: 0,
+                total,
+                isClosed: false,
+            })
+        }
         countdownTimers.delete(gameId)
     }, countdownValues.length * 1000)
 
@@ -526,7 +531,7 @@ export async function startQuiz(request, reply) {
             `UPDATE games
              SET status = 'running', started_at = NOW(), finished_at = NULL,
                  current_question_index = 0, question_duration = $2,
-                 is_question_closed = FALSE
+                 is_question_closed = TRUE
              WHERE id = $1
              RETURNING id, name, created_at, status, current_question_index,
                        question_duration, started_at, finished_at, is_question_closed`,
@@ -541,8 +546,16 @@ export async function startQuiz(request, reply) {
 
         clearCountdown(gameId)
         if (firstQuestion) {
-            scheduleCountdown(request.server.io, gameId, {
+            // Отправляем первый вопрос в preview для админа (без отсчета)
+            request.server.io.emit('game:questionPreview', {
+                gameId,
                 question: firstQuestion,
+                index: 0,
+                total: totalQuestions,
+            })
+            request.server.io.emit('game:started', {
+                gameId,
+                index: 0,
                 total: totalQuestions,
             })
         } else {
@@ -553,7 +566,7 @@ export async function startQuiz(request, reply) {
             })
         }
 
-        reply.send({ message: 'Запуск игры. Отсчёт начат', game, countdown: Boolean(firstQuestion) })
+        reply.send({ message: 'Игра запущена. Первый вопрос готов к старту', game, preview: Boolean(firstQuestion) })
     } catch (error) {
         await client.query('ROLLBACK')
         request.log.error(error)
@@ -593,6 +606,100 @@ export async function stopQuiz(request, reply) {
     } catch (error) {
         request.log.error(error)
         reply.code(500).send({ message: 'Не удалось остановить игру' })
+    }
+}
+
+export async function startQuestion(request, reply) {
+    const gameId = Number(request.params.id)
+
+    if (Number.isNaN(gameId)) {
+        reply.code(400).send({ message: 'Некорректный идентификатор игры' })
+        return
+    }
+
+    const client = await pool.connect()
+    try {
+        await client.query('BEGIN')
+
+        const gameResult = await client.query(
+            'SELECT status, current_question_index, is_question_closed FROM games WHERE id = $1 FOR UPDATE',
+            [gameId],
+        )
+
+        if (gameResult.rowCount === 0) {
+            await client.query('ROLLBACK')
+            reply.code(404).send({ message: 'Игра не найдена' })
+            return
+        }
+
+        const game = gameResult.rows[0]
+
+        if (game.status !== 'running') {
+            await client.query('ROLLBACK')
+            reply.code(409).send({ message: 'Игра не запущена' })
+            return
+        }
+
+        if (!game.is_question_closed) {
+            await client.query('ROLLBACK')
+            reply.code(409).send({ message: 'Вопрос уже запущен' })
+            return
+        }
+
+        const currentQuestion = await getQuestionByIndex(gameId, game.current_question_index, client)
+
+        if (!currentQuestion) {
+            await client.query('ROLLBACK')
+            reply.code(404).send({ message: 'Текущий вопрос не найден' })
+            return
+        }
+
+        const totalQuestions = await getQuestionCount(gameId, client)
+
+        await client.query('COMMIT')
+
+        // Запускаем отсчет
+        clearCountdown(gameId)
+        scheduleCountdown(request.server.io, gameId, {
+            question: currentQuestion,
+            total: totalQuestions,
+            onComplete: async () => {
+                // После отсчета обновляем состояние вопроса и отправляем событие
+                const updateClient = await pool.connect()
+                try {
+                    await updateClient.query('BEGIN')
+                    await updateClient.query(
+                        'UPDATE games SET is_question_closed = FALSE WHERE id = $1',
+                        [gameId],
+                    )
+                    await updateClient.query('COMMIT')
+                } catch (error) {
+                    await updateClient.query('ROLLBACK')
+                    console.error('Error updating question state:', error)
+                } finally {
+                    updateClient.release()
+                }
+                
+                // Отправляем событие что вопрос готов к ответу
+                request.server.io.emit('game:questionReady', {
+                    gameId,
+                    question: currentQuestion,
+                    index: game.current_question_index,
+                    total: totalQuestions,
+                })
+            },
+        })
+
+        reply.send({
+            message: 'Запуск вопроса. Отсчёт начат',
+            gameId,
+        })
+    } catch (error) {
+        await client.query('ROLLBACK')
+        request.log.error(error)
+        reply.code(500).send({ message: 'Не удалось запустить вопрос' })
+    } finally {
+        client.release()
     }
 }
 
@@ -653,7 +760,7 @@ export async function advanceQuizQuestion(request, reply) {
         const updateResult = await client.query(
             `UPDATE games
                SET current_question_index = $2,
-                   is_question_closed = FALSE
+                   is_question_closed = TRUE
              WHERE id = $1
              RETURNING id, name, created_at, status, current_question_index,
                        question_duration, started_at, finished_at, is_question_closed`,
@@ -662,16 +769,26 @@ export async function advanceQuizQuestion(request, reply) {
 
         const nextQuestion = await getQuestionByIndex(gameId, nextIndex, client)
 
+        // Очищаем очередь для всех вопросов этой игры (очередь должна быть только для текущего активного вопроса)
+        await client.query('DELETE FROM answer_queue WHERE game_id = $1', [gameId])
+
         await client.query('COMMIT')
 
         let finished = false
 
         if (nextQuestion) {
-            emitQuestion(request.server.io, gameId, {
+            // Отправляем событие preview для админа, вопрос не показывается ученикам
+            request.server.io.emit('game:questionPreview', {
+                gameId,
                 question: nextQuestion,
                 index: nextIndex,
                 total: totalQuestions,
-                isClosed: false,
+            })
+            // Уведомляем игроков что вопрос закрыт и нужно ждать следующий
+            request.server.io.emit('game:questionClosed', {
+                gameId,
+                questionId: null, // Старый вопрос закрыт
+                winner: null,
             })
         } else {
             request.server.io.emit('game:finished', { gameId })

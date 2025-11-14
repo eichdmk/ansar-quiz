@@ -1,4 +1,4 @@
-import { createQuiz, deleteQuiz, getQuizzes, getQuizHistory, openQuiz, resetQuiz, restartQuiz, startQuiz, stopQuiz, advanceQuizQuestion } from "../controllers/quiz.controller.js";
+import { createQuiz, deleteQuiz, getQuizzes, getQuizHistory, openQuiz, resetQuiz, restartQuiz, startQuiz, stopQuiz, advanceQuizQuestion, startQuestion } from "../controllers/quiz.controller.js";
 import { adminGuard } from '../middlware/auth.js'
 
 export default async function quizRoutes(fastify, options) {
@@ -16,4 +16,5 @@ export default async function quizRoutes(fastify, options) {
     fastify.post('/:id/start', startQuiz)
     fastify.post('/:id/stop', stopQuiz)
     fastify.post('/:id/next', advanceQuizQuestion)
+    fastify.post('/:id/start-question', startQuestion)
 }

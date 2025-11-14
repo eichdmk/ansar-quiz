@@ -15,9 +15,13 @@ import {
   selectGamesError,
   selectGamesState,
   selectGamesStatus,
+  updateGame,
 } from '../../features/games/gamesSlice.js'
 import { fetchPlayers } from '../../api/players.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
+import { startQuestion } from '../../api/games.js'
+import { getQueue } from '../../api/playerAnswers.js'
+import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './Dashboard.module.css'
 
 const PlusIcon = () => (
@@ -53,6 +57,8 @@ function Dashboard() {
   const [localError, setLocalError] = useState(null)
   const [pendingGameId, setPendingGameId] = useState(null)
   const [answerStats, setAnswerStats] = useState({})
+  const [currentQuestions, setCurrentQuestions] = useState({}) // gameId -> question preview
+  const [queues, setQueues] = useState({}) // gameId -> queue array
   const trackedGameIdsRef = useRef(new Set())
   const isMountedRef = useRef(true)
 
@@ -211,6 +217,12 @@ function Dashboard() {
         return
       }
       resetAnswers(gameId)
+      // Очищаем preview если вопрос открыт (старый формат)
+      setCurrentQuestions((prev) => {
+        const next = { ...prev }
+        delete next[gameId]
+        return next
+      })
     }
 
     const handleGameStarted = (payload) => {
@@ -239,10 +251,52 @@ function Dashboard() {
       clearStatsForGame(gameId)
     }
 
+    const handleQuestionPreview = (payload) => {
+      const gameId = Number(payload?.gameId)
+      if (!gameId) {
+        return
+      }
+      setCurrentQuestions((prev) => ({
+        ...prev,
+        [gameId]: payload.question,
+      }))
+      // Обновляем состояние игры - вопрос в preview
+      dispatch(updateGame({ id: gameId, is_question_closed: true }))
+    }
+
+    const handleQueueUpdated = (payload) => {
+      const gameId = Number(payload?.gameId)
+      if (!gameId) {
+        return
+      }
+      setQueues((prev) => ({
+        ...prev,
+        [gameId]: payload.queue || [],
+      }))
+    }
+
+    const handleQuestionReady = (payload) => {
+      const gameId = Number(payload?.gameId)
+      if (!gameId) {
+        return
+      }
+      // Очищаем preview когда вопрос готов
+      setCurrentQuestions((prev) => {
+        const next = { ...prev }
+        delete next[gameId]
+        return next
+      })
+      // Обновляем состояние игры - вопрос больше не в preview
+      dispatch(updateGame({ id: gameId, is_question_closed: false }))
+    }
+
     socket.on('player:answer', handlePlayerAnswer)
     socket.on('player:joined', handlePlayerJoined)
     socket.on('player:left', handlePlayerLeft)
     socket.on('game:questionOpened', handleQuestionOpened)
+    socket.on('game:questionPreview', handleQuestionPreview)
+    socket.on('game:questionReady', handleQuestionReady)
+    socket.on('player:queueUpdated', handleQueueUpdated)
     socket.on('game:started', handleGameStarted)
     socket.on('game:opened', handleGameOpened)
     socket.on('game:finished', handleGameFinished)
@@ -254,6 +308,9 @@ function Dashboard() {
       socket.off('player:joined', handlePlayerJoined)
       socket.off('player:left', handlePlayerLeft)
       socket.off('game:questionOpened', handleQuestionOpened)
+      socket.off('game:questionPreview', handleQuestionPreview)
+      socket.off('game:questionReady', handleQuestionReady)
+      socket.off('player:queueUpdated', handleQueueUpdated)
       socket.off('game:started', handleGameStarted)
       socket.off('game:opened', handleGameOpened)
       socket.off('game:finished', handleGameFinished)
@@ -357,6 +414,28 @@ function Dashboard() {
       })
   }
 
+  const handleStartQuestion = async (game) => {
+    setLocalError(null)
+    setPendingGameId(game.id)
+    try {
+      await startQuestion(game.id)
+      // Загружаем очередь после старта вопроса
+      try {
+        const queueData = await getQueue(game.id)
+        setQueues((prev) => ({
+          ...prev,
+          [game.id]: queueData.queue || [],
+        }))
+      } catch {
+        // Игнорируем ошибки загрузки очереди
+      }
+    } catch (error) {
+      setLocalError(error?.response?.data?.message ?? error?.message ?? 'Не удалось запустить вопрос')
+    } finally {
+      setPendingGameId(null)
+    }
+  }
+
   const totalPages = useMemo(() => {
     if (gamesState.limit <= 0) {
       return 1
@@ -425,6 +504,9 @@ function Dashboard() {
               const pendingCount = Math.max(totalPlayersInGame - answeredCount, 0)
               const shouldShowAnswerStats =
                 game.status === 'running' && (totalPlayersInGame > 0 || answeredCount > 0)
+              const currentQuestion = currentQuestions[Number(game.id)]
+              const queue = queues[Number(game.id)] || []
+              const isQuestionInPreview = game.status === 'running' && game.is_question_closed && currentQuestion
 
               return (
                 <article
@@ -470,6 +552,32 @@ function Dashboard() {
                         </div>
                       </div>
                     )}
+                    {isQuestionInPreview && (
+                      <div className={styles.questionPreview}>
+                        <span className={styles.answerStatsTitle}>Текущий вопрос (превью)</span>
+                        <div className={styles.questionPreviewContent}>
+                          <h4>{currentQuestion.text}</h4>
+                          {currentQuestion.imageUrl && (
+                            <div className={styles.questionPreviewImage}>
+                              <img src={resolveImageUrl(currentQuestion.imageUrl)} alt="Изображение вопроса" />
+                            </div>
+                          )}
+                          {queue.length > 0 && (
+                            <div className={styles.queuePreview}>
+                              <span className={styles.queueTitle}>Очередь ({queue.length}):</span>
+                              <div className={styles.queueList}>
+                                {queue.slice(0, 5).map((item, idx) => (
+                                  <span key={item.playerId} className={styles.queueItem}>
+                                    {idx + 1}. {item.username}
+                                  </span>
+                                ))}
+                                {queue.length > 5 && <span>...</span>}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {shouldShowAnswerStats && (
                       <div className={styles.answerStats}>
                         <span className={styles.answerStatsTitle}>Ответы текущего вопроса</span>
@@ -485,6 +593,19 @@ function Dashboard() {
                               Не ответили: {pendingCount}
                             </span>
                           )}
+                        </div>
+                      </div>
+                    )}
+                    {queue.length > 0 && !isQuestionInPreview && (
+                      <div className={styles.queueInfo}>
+                        <span className={styles.answerStatsTitle}>Очередь ответов ({queue.length})</span>
+                        <div className={styles.queueList}>
+                          {queue.slice(0, 3).map((item, idx) => (
+                            <span key={item.playerId} className={styles.queueItem}>
+                              {idx + 1}. {item.username}
+                            </span>
+                          ))}
+                          {queue.length > 3 && <span>...</span>}
                         </div>
                       </div>
                     )}
@@ -536,6 +657,16 @@ function Dashboard() {
                         disabled={pendingGameId === game.id}
                       >
                         Завершить
+                      </button>
+                    )}
+                    {game.status === 'running' && isQuestionInPreview && (
+                      <button
+                        type="button"
+                        className={styles.successButton}
+                        onClick={() => handleStartQuestion(game)}
+                        disabled={pendingGameId === game.id}
+                      >
+                        Старт вопроса
                       </button>
                     )}
                     {game.status === 'running' && (

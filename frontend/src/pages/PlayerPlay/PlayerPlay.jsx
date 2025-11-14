@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../app/hooks.js'
 import { selectPlayer, resetPlayer } from '../../features/player/playerSlice.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
-import { submitAnswer } from '../../api/playerAnswers.js'
+import { submitAnswer, requestAnswer, skipQuestion } from '../../api/playerAnswers.js'
 import { fetchCurrentQuestion } from '../../api/games.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './PlayerPlay.module.css'
@@ -39,6 +39,10 @@ function PlayerPlay() {
   const [questionClosed, setQuestionClosed] = useState(false)
   const [attemptLocked, setAttemptLocked] = useState(false)
   const [countdownValue, setCountdownValue] = useState(null)
+  const [questionReady, setQuestionReady] = useState(false) // Вопрос готов к ответу (после отсчета)
+  const [inQueue, setInQueue] = useState(false) // В очереди
+  const [queuePosition, setQueuePosition] = useState(null) // Позиция в очереди
+  const [hasQuestion, setHasQuestion] = useState(false) // Имеет ли право отвечать
   const countdownAudioRef = useRef({
     context: null,
     lastValue: null,
@@ -319,6 +323,74 @@ function PlayerPlay() {
       setQuestionClosed(true)
       setAttemptLocked(true)
       setGameFinished(false)
+      setQuestionReady(false)
+      setInQueue(false)
+      setQueuePosition(null)
+      setHasQuestion(false)
+    }
+
+    const handleQuestionReady = (payload) => {
+      if (payload.gameId !== player.gameId) {
+        return
+      }
+      setQuestionReady(true)
+      setStatusMessage('Нажмите "Ответить" чтобы войти в очередь')
+      setCountdownValue(null)
+      setCurrentQuestion(null)
+      setQuestionIndex(null)
+      setSelectedAnswer(null)
+      setQuestionClosed(false)
+      setAttemptLocked(false)
+      setInQueue(false)
+      setQueuePosition(null)
+      setHasQuestion(false)
+    }
+
+    const handleQuestionAssigned = (payload) => {
+      if (payload.gameId !== player.gameId || payload.playerId !== player.id) {
+        return
+      }
+      setHasQuestion(true)
+      setInQueue(false)
+      setQueuePosition(null)
+      setQuestionReady(false)
+      setCurrentQuestion(payload.question)
+      setStatusMessage('Выберите ответ')
+      setSelectedAnswer(null)
+      setQuestionClosed(false)
+      setAttemptLocked(false)
+      setCountdownValue(null)
+    }
+
+    const handleSkipped = (payload) => {
+      if (payload.gameId !== player.gameId) {
+        return
+      }
+      if (payload.playerId === player.id) {
+        setHasQuestion(false)
+        setCurrentQuestion(null)
+        setSelectedAnswer(null)
+        setStatusMessage('Вы пропустили вопрос')
+      }
+    }
+
+    const handleQueueUpdated = (payload) => {
+      if (payload.gameId !== player.gameId) {
+        return
+      }
+      // Обновляем позицию в очереди если игрок в очереди
+      if (inQueue && payload.queue) {
+        const playerInQueue = payload.queue.find((item) => item.playerId === player.id)
+        if (playerInQueue) {
+          // Находим позицию игрока в очереди
+          const position = payload.queue.findIndex((item) => item.playerId === player.id) + 1
+          setQueuePosition(position)
+        } else if (payload.queue.length === 0) {
+          // Очередь очищена
+          setInQueue(false)
+          setQueuePosition(null)
+        }
+      }
     }
 
     const handleGameClosed = (payload) => {
@@ -343,10 +415,17 @@ function PlayerPlay() {
       setSelectedAnswer(null)
       setAttemptLocked(true)
       setCountdownValue(null)
+      setHasQuestion(false)
+      setInQueue(false)
+      setQueuePosition(null)
+      setQuestionReady(false)
       if (payload.winner?.id === player.id) {
         setStatusMessage('Вы были первым! Балл начислен.')
-      } else {
+      } else if (payload.winner) {
         setStatusMessage('Кто-то уже ответил правильно. Ждём новый вопрос.')
+      } else {
+        // Вопрос закрыт, но без победителя (переход к следующему вопросу)
+        setStatusMessage('Вопрос закрыт. Ожидайте следующий вопрос.')
       }
     }
 
@@ -374,6 +453,10 @@ function PlayerPlay() {
     socket.on('game:started', handleGameStarted)
     socket.on('game:opened', handleGameOpened)
     socket.on('game:countdown', handleCountdown)
+    socket.on('game:questionReady', handleQuestionReady)
+    socket.on('player:questionAssigned', handleQuestionAssigned)
+    socket.on('player:skipped', handleSkipped)
+    socket.on('player:queueUpdated', handleQueueUpdated)
     socket.on('game:closed', handleGameClosed)
     if (!socket.connected) {
       socket.connect()
@@ -386,9 +469,13 @@ function PlayerPlay() {
       socket.off('game:started', handleGameStarted)
       socket.off('game:opened', handleGameOpened)
       socket.off('game:countdown', handleCountdown)
+      socket.off('game:questionReady', handleQuestionReady)
+      socket.off('player:questionAssigned', handleQuestionAssigned)
+      socket.off('player:skipped', handleSkipped)
+      socket.off('player:queueUpdated', handleQueueUpdated)
       socket.off('game:closed', handleGameClosed)
     }
-  }, [socket, player, applyQuestion, completeGame])
+  }, [socket, player, applyQuestion, completeGame, inQueue])
 
   const handleSelectAnswer = (answerId) => {
     if (gameFinished || !currentQuestion || questionClosed || attemptLocked) {
@@ -397,8 +484,66 @@ function PlayerPlay() {
     setSelectedAnswer(answerId)
   }
 
+  const handleRequestAnswer = async () => {
+    if (!player || !questionReady || sending) {
+      return
+    }
+    setSending(true)
+    try {
+      const response = await requestAnswer({
+        playerId: player.id,
+        gameId: player.gameId,
+      })
+      if (response.assigned) {
+        // Получили вопрос сразу
+        setHasQuestion(true)
+        setInQueue(false)
+        setQueuePosition(null)
+        setCurrentQuestion(response.question)
+        setStatusMessage('Выберите ответ')
+        setQuestionReady(false)
+      } else {
+        // В очереди
+        setInQueue(true)
+        setQueuePosition(response.position)
+        setStatusMessage(`Вы в очереди, позиция: ${response.position}`)
+      }
+      setError(null)
+    } catch (err) {
+      const message = err.response?.data?.message ?? err.message ?? 'Не удалось войти в очередь'
+      setStatusMessage(message)
+      setError(message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const handleSkip = async () => {
+    if (!player || !currentQuestion || !hasQuestion || sending) {
+      return
+    }
+    setSending(true)
+    try {
+      await skipQuestion({
+        playerId: player.id,
+        questionId: currentQuestion.id,
+      })
+      setHasQuestion(false)
+      setCurrentQuestion(null)
+      setSelectedAnswer(null)
+      setStatusMessage('Вопрос пропущен')
+      setError(null)
+    } catch (err) {
+      const message = err.response?.data?.message ?? err.message ?? 'Не удалось пропустить вопрос'
+      setStatusMessage(message)
+      setError(message)
+    } finally {
+      setSending(false)
+    }
+  }
+
   const handleSubmit = async () => {
-    if (!player || !currentQuestion || selectedAnswer === null || attemptLocked) {
+    if (!player || !currentQuestion || selectedAnswer === null || attemptLocked || !hasQuestion) {
       return
     }
     setSending(true)
@@ -409,6 +554,7 @@ function PlayerPlay() {
         answerId: selectedAnswer,
       })
       setAttemptLocked(true)
+      setHasQuestion(false)
       if (response.questionClosed) {
         setQuestionClosed(true)
       }
@@ -420,19 +566,26 @@ function PlayerPlay() {
         )
       } else if (response.awarded && response.isCorrect) {
         setStatusMessage('Вы были первым! Балл начислен.')
+        setCurrentQuestion(null)
+        setSelectedAnswer(null)
       } else if (response.isCorrect) {
         setStatusMessage('Правильно, но кто-то ответил быстрее.')
         setQuestionClosed(true)
+        setCurrentQuestion(null)
+        setSelectedAnswer(null)
       } else {
-        setStatusMessage('Ответ неверный. Вы больше не можете отвечать на этот вопрос.')
+        setStatusMessage('Ответ неверный. Вопрос передан следующему в очереди.')
+        setCurrentQuestion(null)
         setSelectedAnswer(null)
       }
       setError(null)
     } catch (err) {
       const message = err.response?.data?.message ?? err.message ?? 'Не удалось отправить ответ'
-      if (message.includes('завершён')) {
-        setStatusMessage('Этот вопрос уже закрыт. Ждём следующий.')
+      if (message.includes('завершён') || message.includes('очереди')) {
+        setStatusMessage('Этот вопрос уже закрыт или вы не можете отвечать. Ждём следующий.')
         setQuestionClosed(true)
+        setHasQuestion(false)
+        setCurrentQuestion(null)
       } else {
         setStatusMessage(message)
       }
@@ -535,7 +688,31 @@ function PlayerPlay() {
         {loading && <div className={styles.stateBox}>Загружаем вопросы…</div>}
         {error && !loading && <div className={styles.stateBox}>{error}</div>}
 
-        {!loading && !error && currentQuestion && !gameFinished && (
+        {!loading && !error && questionReady && !hasQuestion && !inQueue && !gameFinished && (
+          <div className={styles.questionBlock}>
+            <button
+              type="button"
+              className={styles.submitButton}
+              onClick={handleRequestAnswer}
+              disabled={sending}
+            >
+              {sending ? 'Запрос...' : 'Ответить'}
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && inQueue && !gameFinished && (
+          <div className={styles.questionBlock}>
+            <div className={styles.stateBox}>
+              Вы в очереди, позиция: {queuePosition}
+            </div>
+            <div className={styles.stateBox}>
+              Ожидайте, когда подойдет ваша очередь
+            </div>
+          </div>
+        )}
+
+        {!loading && !error && currentQuestion && hasQuestion && !gameFinished && (
           <div className={styles.questionBlock}>
             <h2>{currentQuestion.text}</h2>
             {currentQuestion.imageUrl && (
@@ -558,16 +735,26 @@ function PlayerPlay() {
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              className={styles.submitButton}
-              onClick={handleSubmit}
-              disabled={
-                selectedAnswer === null || sending || questionClosed || attemptLocked
-              }
-            >
-              {sending ? 'Отправляем...' : 'Ответить'}
-            </button>
+            <div className={styles.actionsRow}>
+              <button
+                type="button"
+                className={styles.submitButton}
+                onClick={handleSubmit}
+                disabled={
+                  selectedAnswer === null || sending || questionClosed || attemptLocked
+                }
+              >
+                {sending ? 'Отправляем...' : 'Ответить'}
+              </button>
+              <button
+                type="button"
+                className={styles.secondaryButton}
+                onClick={handleSkip}
+                disabled={sending || questionClosed || attemptLocked}
+              >
+                Пропустить
+              </button>
+            </div>
             {questionClosed && (
               <div className={styles.stateBox}>Ждём следующий вопрос от ведущего</div>
             )}

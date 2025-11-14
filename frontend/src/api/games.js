@@ -52,3 +52,8 @@ export const advanceGameQuestion = async (gameId) => {
   return response.data
 }
 
+export const startQuestion = async (gameId) => {
+  const response = await http.post(`/quiz/${gameId}/start-question`)
+  return response.data
+}
+

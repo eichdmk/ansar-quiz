@@ -19,6 +19,7 @@ function Leaderboard() {
   const [gameStatus, setGameStatus] = useState('waiting')
   const [countdownValue, setCountdownValue] = useState(null)
   const [lastQuestionWinner, setLastQuestionWinner] = useState(null)
+  const [queue, setQueue] = useState([])
 
   useEffect(() => {
     setGamesLoading(true)
@@ -97,6 +98,7 @@ function Leaderboard() {
       setGameStatus('running')
       setCountdownValue(null)
       setLastQuestionWinner(null)
+      setQueue([])
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -112,6 +114,7 @@ function Leaderboard() {
       }
       setGameStatus('closed')
       setCountdownValue(null)
+      setQueue([])
       const winnerId =
         payload?.winner?.id ??
         payload?.winner?.playerId ??
@@ -157,7 +160,11 @@ function Leaderboard() {
         return
       }
       setCountdownValue(payload.value)
-      setGameStatus('countdown')
+      if (payload.value !== null && payload.value !== undefined) {
+        setGameStatus('countdown')
+      } else {
+        setGameStatus('running')
+      }
       setLastQuestionWinner(null)
       setGames((prev) =>
         prev.map((game) =>
@@ -228,10 +235,36 @@ function Leaderboard() {
       }
       setGameStatus('finished')
       setCountdownValue(null)
+      setQueue([])
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
             ? { ...game, status: 'finished', is_question_closed: true }
+            : game,
+        ),
+      )
+    }
+
+    const handleQueueUpdated = (payload) => {
+      if (!isSameGame(payload.gameId)) {
+        return
+      }
+      setQueue(payload.queue || [])
+    }
+
+    const handleQuestionReady = (payload) => {
+      if (!isSameGame(payload.gameId)) {
+        return
+      }
+      // Очищаем отсчет когда вопрос готов
+      setCountdownValue(null)
+      setGameStatus('running')
+      setLastQuestionWinner(null)
+      setQueue([])
+      setGames((prev) =>
+        prev.map((game) =>
+          toNumber(game.id) === toNumber(payload.gameId)
+            ? { ...game, status: 'running', is_question_closed: false }
             : game,
         ),
       )
@@ -244,10 +277,12 @@ function Leaderboard() {
     socket.on('game:questionClosed', handleQuestionClosed)
     socket.on('game:opened', handleGameOpened)
     socket.on('game:countdown', handleCountdown)
+    socket.on('game:questionReady', handleQuestionReady)
     socket.on('game:closed', handleGameClosed)
     socket.on('game:started', handleGameStarted)
     socket.on('game:stopped', handleGameStopped)
     socket.on('game:finished', handleGameFinished)
+    socket.on('player:queueUpdated', handleQueueUpdated)
 
     if (!socket.connected) {
       socket.connect()
@@ -261,10 +296,12 @@ function Leaderboard() {
       socket.off('game:questionClosed', handleQuestionClosed)
       socket.off('game:opened', handleGameOpened)
       socket.off('game:countdown', handleCountdown)
+      socket.off('game:questionReady', handleQuestionReady)
       socket.off('game:closed', handleGameClosed)
       socket.off('game:started', handleGameStarted)
       socket.off('game:stopped', handleGameStopped)
       socket.off('game:finished', handleGameFinished)
+      socket.off('player:queueUpdated', handleQueueUpdated)
     }
   }, [socket, selectedGameId])
 
@@ -292,7 +329,7 @@ function Leaderboard() {
       setGameStatus('waiting')
       return
     }
-    if (countdownValue !== null) {
+    if (countdownValue !== null && countdownValue !== undefined) {
       setGameStatus('countdown')
       return
     }
@@ -467,9 +504,9 @@ function Leaderboard() {
             Комната открыта. Игроки могут подключаться.
           </div>
         )}
-        {gameStatus === 'countdown' && countdownValue !== null && (
+        {gameStatus === 'countdown' && countdownValue !== null && countdownValue !== undefined && (
           <div className={styles.countdownBanner}>
-            Старт через {countdownValue > 0 ? countdownValue : 'старт!'}
+            {countdownValue > 0 ? `Старт через ${countdownValue}` : 'Старт!'}
           </div>
         )}
         {gameStatus === 'finished' && (
@@ -495,71 +532,72 @@ function Leaderboard() {
         )}
 
         {selectedGameId && !loading && !error && sortedPlayers.length > 0 && (
-          <div className={styles.tablePlaceholder}>
-            <div className={styles.tableHeader}>
-              <span>Место</span>
-              <span>Игрок</span>
-              <span>Группа</span>
-              <span style={{ display: 'flex', justifyContent: 'flex-end' }}>⚡ Баллы</span>
-            </div>
-            {sortedPlayers.map((player, index) => (
-              <div
-                key={player.id}
-                className={`${styles.tableRow} ${
-                  rowAnimations[player.id] ? styles[`row${rowAnimations[player.id]}`] : ''
-                } ${
-                  lastQuestionWinner?.id &&
-                  String(player.id) === String(lastQuestionWinner.id)
-                    ? styles.tableRowWinner
-                    : ''
-                }`}
-                style={{
-                  ...getRowStyle(index),
-                }}
-              >
-                <span
+          <div className={styles.contentWrapper}>
+            <div className={styles.tablePlaceholder}>
+              <div className={styles.tableHeader}>
+                <span>Место</span>
+                <span>Игрок</span>
+                <span>Группа</span>
+                <span style={{ display: 'flex', justifyContent: 'flex-end' }}>⚡ Баллы</span>
+              </div>
+              {sortedPlayers.map((player, index) => (
+                <div
+                  key={player.id}
+                  className={`${styles.tableRow} ${
+                    rowAnimations[player.id] ? styles[`row${rowAnimations[player.id]}`] : ''
+                  } ${
+                    lastQuestionWinner?.id &&
+                    String(player.id) === String(lastQuestionWinner.id)
+                      ? styles.tableRowWinner
+                      : ''
+                  }`}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    fontWeight: 700,
-                    fontSize: index < 3 ? '20px' : '16px',
-                  }}
-                >
-                  {getPlacementBadge(index)}
-                </span>
-                <span
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    fontWeight: index === 0 ? 700 : 600,
+                    ...getRowStyle(index),
                   }}
                 >
                   <span
                     style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: '50%',
-                      overflow: 'hidden',
-                      flexShrink: 0,
-                      border: index < 3 ? '3px solid rgba(255, 255, 255, 0.65)' : '2px solid rgba(33, 150, 243, 0.18)',
-                      boxShadow:
-                        index < 3 ? '0 6px 14px rgba(0, 0, 0, 0.18)' : '0 4px 10px rgba(33, 150, 243, 0.12)',
-                      background: `#${pickAvatarColor(player?.username || player?.name || String(player?.id ?? '')).toUpperCase()}`,
-                      display: 'inline-flex',
+                      display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
+                      gap: '10px',
+                      fontWeight: 700,
+                      fontSize: index < 3 ? '20px' : '16px',
                     }}
                   >
-                    <img
-                      src={getPlayerAvatarUrl(player)}
-                      alt={player.username ? `Аватар ${player.username}` : 'Аватар игрока'}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      loading="lazy"
-                    />
+                    {getPlacementBadge(index)}
                   </span>
-                  <span style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      fontWeight: index === 0 ? 700 : 600,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: '50%',
+                        overflow: 'hidden',
+                        flexShrink: 0,
+                        border: index < 3 ? '3px solid rgba(255, 255, 255, 0.65)' : '2px solid rgba(33, 150, 243, 0.18)',
+                        boxShadow:
+                          index < 3 ? '0 6px 14px rgba(0, 0, 0, 0.18)' : '0 4px 10px rgba(33, 150, 243, 0.12)',
+                        background: `#${pickAvatarColor(player?.username || player?.name || String(player?.id ?? '')).toUpperCase()}`,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <img
+                        src={getPlayerAvatarUrl(player)}
+                        alt={player.username ? `Аватар ${player.username}` : 'Аватар игрока'}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        loading="lazy"
+                      />
+                    </span>
+                    <span style={{ display: 'flex', flexDirection: 'column' }}>
                     {index === 0 ? (
                       <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span role="img" aria-hidden="true">
@@ -569,29 +607,51 @@ function Leaderboard() {
                     ) : (
                       player.username
                     )}
-                    {lastQuestionWinner?.id &&
-                      String(player.id) === String(lastQuestionWinner.id) && (
-                        <span className={styles.winnerTag}>Ответил правильно на последний вопрос</span>
-                      )}
+                    </span>
                   </span>
-                </span>
-                <span style={{ fontWeight: 500 }}>{player.groupName || '—'}</span>
-                <span
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontWeight: 700,
-                  }}
-                >
+                  <span style={{ fontWeight: 500 }}>{player.groupName || '—'}</span>
+                  <span
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span role="img" aria-hidden="true">
+                      {index === 0 ? '🔥' : index < 3 ? '⚡' : '🎯'}
+                    </span>
+                    <span>{player.score ?? 0}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {queue.length > 0 && (
+              <div className={styles.queueSection}>
+                <h3 className={styles.queueTitle}>
                   <span role="img" aria-hidden="true">
-                    {index === 0 ? '🔥' : index < 3 ? '⚡' : '🎯'}
-                  </span>
-                  <span>{player.score ?? 0}</span>
-                </span>
+                    📋
+                  </span>{' '}
+                  Очередь ответов ({queue.length})
+                </h3>
+                <div className={styles.queueList}>
+                  {queue.map((item, idx) => (
+                    <div key={item.playerId} className={styles.queueItem}>
+                      <span className={styles.queuePosition}>{idx + 1}.</span>
+                      <span className={styles.queuePlayerName}>{item.username}</span>
+                      {item.groupName && (
+                        <span className={styles.queueGroupName}>({item.groupName})</span>
+                      )}
+                      {idx === 0 && (
+                        <span className={styles.queueActive}>Отвечает сейчас</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>

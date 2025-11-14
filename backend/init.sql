@@ -60,3 +60,16 @@ CREATE INDEX idx_questions_game ON questions(game_id);
 CREATE INDEX idx_answers_question ON answers(question_id);
 CREATE INDEX idx_players_game ON players(game_id);
 CREATE INDEX idx_player_answers_question ON player_answers(question_id);
+-- Таблица очереди ответов
+CREATE TABLE answer_queue (
+    id SERIAL PRIMARY KEY,
+    game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    joined_at TIMESTAMP DEFAULT NOW(),
+    is_active BOOLEAN DEFAULT TRUE,
+    UNIQUE (game_id, question_id, player_id)
+);
+CREATE INDEX idx_answer_queue_game_question ON answer_queue(game_id, question_id, position);
+CREATE INDEX idx_answer_queue_active ON answer_queue(game_id, question_id, is_active) WHERE is_active = TRUE;
