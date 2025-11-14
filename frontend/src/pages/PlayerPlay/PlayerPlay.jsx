@@ -614,12 +614,6 @@ function PlayerPlay() {
     return null
   }
 
-  const activeQuestionNumber = questionIndex !== null ? questionIndex + 1 : null
-  const progressPercent =
-    activeQuestionNumber && totalQuestions > 0
-      ? Math.min(100, Math.round((activeQuestionNumber / totalQuestions) * 100))
-      : 0
-
   const statusTone = (() => {
     if (gameFinished) {
       return { label: 'Игра завершена', variant: 'done' }
@@ -665,17 +659,6 @@ function PlayerPlay() {
           <span>{statusTone.label}</span>
         </div>
         <h1>{statusMessage}</h1>
-
-        {totalQuestions > 0 && (
-          <div className={styles.progressBar}>
-            <div className={styles.progressTrack}>
-              <div className={styles.progressFill} style={{ width: `${progressPercent}%` }} />
-            </div>
-            <span className={styles.progressLabel}>
-              Вопрос {Math.min(activeQuestionNumber ?? 0, totalQuestions)} из {totalQuestions}
-            </span>
-          </div>
-        )}
 
         {countdownValue !== null && !gameFinished && (
           <div className={styles.countdownWrapper}>
