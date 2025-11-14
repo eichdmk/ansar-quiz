@@ -20,7 +20,6 @@ import {
 import { fetchPlayers } from '../../api/players.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
 import { startQuestion } from '../../api/games.js'
-import { getQueue } from '../../api/playerAnswers.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './Dashboard.module.css'
 
@@ -58,7 +57,6 @@ function Dashboard() {
   const [pendingGameId, setPendingGameId] = useState(null)
   const [answerStats, setAnswerStats] = useState({})
   const [currentQuestions, setCurrentQuestions] = useState({}) // gameId -> question preview
-  const [queues, setQueues] = useState({}) // gameId -> queue array
   const trackedGameIdsRef = useRef(new Set())
   const isMountedRef = useRef(true)
 
@@ -264,17 +262,6 @@ function Dashboard() {
       dispatch(updateGame({ id: gameId, is_question_closed: true }))
     }
 
-    const handleQueueUpdated = (payload) => {
-      const gameId = Number(payload?.gameId)
-      if (!gameId) {
-        return
-      }
-      setQueues((prev) => ({
-        ...prev,
-        [gameId]: payload.queue || [],
-      }))
-    }
-
     const handleQuestionReady = (payload) => {
       const gameId = Number(payload?.gameId)
       if (!gameId) {
@@ -296,7 +283,6 @@ function Dashboard() {
     socket.on('game:questionOpened', handleQuestionOpened)
     socket.on('game:questionPreview', handleQuestionPreview)
     socket.on('game:questionReady', handleQuestionReady)
-    socket.on('player:queueUpdated', handleQueueUpdated)
     socket.on('game:started', handleGameStarted)
     socket.on('game:opened', handleGameOpened)
     socket.on('game:finished', handleGameFinished)
@@ -310,7 +296,6 @@ function Dashboard() {
       socket.off('game:questionOpened', handleQuestionOpened)
       socket.off('game:questionPreview', handleQuestionPreview)
       socket.off('game:questionReady', handleQuestionReady)
-      socket.off('player:queueUpdated', handleQueueUpdated)
       socket.off('game:started', handleGameStarted)
       socket.off('game:opened', handleGameOpened)
       socket.off('game:finished', handleGameFinished)
@@ -419,16 +404,6 @@ function Dashboard() {
     setPendingGameId(game.id)
     try {
       await startQuestion(game.id)
-      // Загружаем очередь после старта вопроса
-      try {
-        const queueData = await getQueue(game.id)
-        setQueues((prev) => ({
-          ...prev,
-          [game.id]: queueData.queue || [],
-        }))
-      } catch {
-        // Игнорируем ошибки загрузки очереди
-      }
     } catch (error) {
       setLocalError(error?.response?.data?.message ?? error?.message ?? 'Не удалось запустить вопрос')
     } finally {
@@ -505,7 +480,6 @@ function Dashboard() {
               const shouldShowAnswerStats =
                 game.status === 'running' && (totalPlayersInGame > 0 || answeredCount > 0)
               const currentQuestion = currentQuestions[Number(game.id)]
-              const queue = queues[Number(game.id)] || []
               const isQuestionInPreview = game.status === 'running' && game.is_question_closed && currentQuestion
 
               return (
@@ -562,19 +536,6 @@ function Dashboard() {
                               <img src={resolveImageUrl(currentQuestion.imageUrl)} alt="Изображение вопроса" />
                             </div>
                           )}
-                          {queue.length > 0 && (
-                            <div className={styles.queuePreview}>
-                              <span className={styles.queueTitle}>Очередь ({queue.length}):</span>
-                              <div className={styles.queueList}>
-                                {queue.slice(0, 5).map((item, idx) => (
-                                  <span key={item.playerId} className={styles.queueItem}>
-                                    {idx + 1}. {item.username}
-                                  </span>
-                                ))}
-                                {queue.length > 5 && <span>...</span>}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </div>
                     )}
@@ -593,19 +554,6 @@ function Dashboard() {
                               Не ответили: {pendingCount}
                             </span>
                           )}
-                        </div>
-                      </div>
-                    )}
-                    {queue.length > 0 && !isQuestionInPreview && (
-                      <div className={styles.queueInfo}>
-                        <span className={styles.answerStatsTitle}>Очередь ответов ({queue.length})</span>
-                        <div className={styles.queueList}>
-                          {queue.slice(0, 3).map((item, idx) => (
-                            <span key={item.playerId} className={styles.queueItem}>
-                              {idx + 1}. {item.username}
-                            </span>
-                          ))}
-                          {queue.length > 3 && <span>...</span>}
                         </div>
                       </div>
                     )}
