@@ -163,6 +163,8 @@ export async function invalidatePlayerCache(gameId, playerId = null) {
  * Инвалидация кэша для вопроса
  */
 export async function invalidateQuestionCache(gameId, questionId = null) {
+  // Удаляем точный ключ questions:${gameId} и все ключи с паттерном questions:${gameId}:*
+  await del(`questions:${gameId}`)
   await delPattern(`questions:${gameId}:*`)
   if (questionId) {
     await delPattern(`question:${questionId}:*`)

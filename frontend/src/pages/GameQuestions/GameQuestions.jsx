@@ -161,7 +161,11 @@ function GameQuestions() {
     if (editingQuestionId) {
       dispatch(updateQuestion({ id: editingQuestionId, payload }))
         .unwrap()
-        .then(() => resetForm())
+        .then(() => {
+          resetForm()
+          // Перезагружаем список вопросов с сервера для получения актуальных данных
+          dispatch(loadQuestions(Number(gameId)))
+        })
         .catch((err) => {
           setLocalError(err ?? 'Не удалось обновить вопрос')
         })
@@ -170,7 +174,11 @@ function GameQuestions() {
 
     dispatch(addQuestion(payload))
       .unwrap()
-      .then(() => resetForm())
+      .then(() => {
+        resetForm()
+        // Перезагружаем список вопросов с сервера для получения актуальных данных
+        dispatch(loadQuestions(Number(gameId)))
+      })
       .catch((err) => {
         setLocalError(err ?? 'Не удалось создать вопрос')
       })
@@ -178,6 +186,14 @@ function GameQuestions() {
 
   const handleDeleteQuestion = (id) => {
     dispatch(removeQuestion(id))
+      .unwrap()
+      .then(() => {
+        // Перезагружаем список вопросов с сервера для получения актуальных данных
+        dispatch(loadQuestions(Number(gameId)))
+      })
+      .catch((err) => {
+        // Ошибка уже обработана в slice
+      })
   }
 
   const handleUploadImage = async (event) => {
