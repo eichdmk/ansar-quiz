@@ -56,6 +56,10 @@ export async function createPlayer(request, reply) {
         isClosed: Boolean(currentQuestion.isClosed),
       }
     }
+    // Инвалидация кэша игроков
+    const { invalidatePlayerCache } = await import('../services/cache.service.js')
+    await invalidatePlayerCache(preparedGameId)
+
     if (request.server?.io) {
       request.server.io.emit('player:joined', payload)
     }
@@ -74,22 +78,30 @@ export async function listPlayers(request, reply) {
     reply.code(400).send({ message: 'Не передан gameId' })
     return
   }
+  const cacheKey = `players:${preparedGameId}`
+  
   try {
-    const result = await pool.query(
-      'SELECT id, username, group_name, score, joined_at FROM players WHERE game_id = $1 ORDER BY score DESC, joined_at ASC',
-      [preparedGameId],
-    )
-    reply.send({
-      gameId: preparedGameId,
-      total: result.rowCount,
-      items: result.rows.map((row) => ({
-        id: row.id,
-        username: row.username,
-        groupName: row.group_name,
-        score: row.score,
-        joinedAt: row.joined_at,
-      })),
-    })
+    const { cached, invalidatePlayerCache } = await import('../services/cache.service.js')
+    
+    const result = await cached(cacheKey, async () => {
+      const result = await pool.query(
+        'SELECT id, username, group_name, score, joined_at FROM players WHERE game_id = $1 ORDER BY score DESC, joined_at ASC',
+        [preparedGameId],
+      )
+      return {
+        gameId: preparedGameId,
+        total: result.rowCount,
+        items: result.rows.map((row) => ({
+          id: row.id,
+          username: row.username,
+          groupName: row.group_name,
+          score: row.score,
+          joinedAt: row.joined_at,
+        })),
+      }
+    }, 30) // Кэш на 30 секунд (часто обновляется из-за очков)
+
+    reply.send(result)
   } catch (error) {
     request.log.error(error)
     reply.code(500).send({ message: 'Ошибка сервера' })
@@ -121,6 +133,10 @@ export async function updatePlayerScore(request, reply) {
       score: result.rows[0].score,
       joinedAt: result.rows[0].joined_at,
     }
+    // Инвалидация кэша игроков
+    const { invalidatePlayerCache } = await import('../services/cache.service.js')
+    await invalidatePlayerCache(payload.gameId)
+
     if (request.server?.io) {
       request.server.io.emit('player:scoreUpdated', payload)
     }
@@ -146,9 +162,20 @@ export async function deletePlayer(request, reply) {
       reply.code(404).send({ message: 'Игрок не найден' })
       return
     }
+    // Получаем gameId перед удалением для инвалидации кэша
+    const gameResult = await pool.query('SELECT game_id FROM players WHERE id = $1', [playerId])
+    const gameId = gameResult.rows[0]?.game_id
+
     if (request.server?.io) {
       request.server.io.emit('player:left', { id: playerId })
     }
+
+    // Инвалидация кэша игроков
+    if (gameId) {
+      const { invalidatePlayerCache } = await import('../services/cache.service.js')
+      await invalidatePlayerCache(gameId)
+    }
+
     reply.send({ id: playerId })
   } catch (error) {
     request.log.error(error)

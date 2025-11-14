@@ -64,6 +64,11 @@ export async function createQuestion(request, reply) {
       createdAnswers = inserts.map((result) => result.rows[0])
     }
     await client.query('COMMIT')
+    
+    // Инвалидация кэша вопросов
+    const { invalidateQuestionCache } = await import('../services/cache.service.js')
+    await invalidateQuestionCache(preparedGameId)
+
     reply.code(201).send({
       id: question.id,
       text: question.question_text,
@@ -94,42 +99,50 @@ export async function listQuestions(request, reply) {
     reply.code(400).send({ message: 'Не передан gameId' })
     return
   }
+  const cacheKey = `questions:${preparedGameId}`
+  
   try {
-    const questionsResult = await pool.query(
-      'SELECT id, question_text, image_url, created_at, position FROM questions WHERE game_id = $1 ORDER BY position ASC, created_at ASC',
-      [preparedGameId],
-    )
-    const questionIds = questionsResult.rows.map((item) => item.id)
-    let answersMap = new Map()
-    if (questionIds.length > 0) {
-      const answersResult = await pool.query(
-        'SELECT id, question_id, answer_text, is_true FROM answers WHERE question_id = ANY($1::int[]) ORDER BY id ASC',
-        [questionIds],
+    const { cached } = await import('../services/cache.service.js')
+    
+    const result = await cached(cacheKey, async () => {
+      const questionsResult = await pool.query(
+        'SELECT id, question_text, image_url, created_at, position FROM questions WHERE game_id = $1 ORDER BY position ASC, created_at ASC',
+        [preparedGameId],
       )
-      answersMap = answersResult.rows.reduce((acc, row) => {
-        const current = acc.get(row.question_id) ?? []
-        current.push({
-          id: row.id,
-          text: row.answer_text,
-          isTrue: row.is_true,
-        })
-        acc.set(row.question_id, current)
-        return acc
-      }, new Map())
-    }
-    const items = questionsResult.rows.map((question) => ({
-      id: question.id,
-      text: question.question_text,
-      imageUrl: question.image_url,
-      createdAt: question.created_at,
-      position: question.position,
-      answers: answersMap.get(question.id) ?? [],
-    }))
-    reply.send({
-      gameId: preparedGameId,
-      total: items.length,
-      items,
-    })
+      const questionIds = questionsResult.rows.map((item) => item.id)
+      let answersMap = new Map()
+      if (questionIds.length > 0) {
+        const answersResult = await pool.query(
+          'SELECT id, question_id, answer_text, is_true FROM answers WHERE question_id = ANY($1::int[]) ORDER BY id ASC',
+          [questionIds],
+        )
+        answersMap = answersResult.rows.reduce((acc, row) => {
+          const current = acc.get(row.question_id) ?? []
+          current.push({
+            id: row.id,
+            text: row.answer_text,
+            isTrue: row.is_true,
+          })
+          acc.set(row.question_id, current)
+          return acc
+        }, new Map())
+      }
+      const items = questionsResult.rows.map((question) => ({
+        id: question.id,
+        text: question.question_text,
+        imageUrl: question.image_url,
+        createdAt: question.created_at,
+        position: question.position,
+        answers: answersMap.get(question.id) ?? [],
+      }))
+      return {
+        gameId: preparedGameId,
+        total: items.length,
+        items,
+      }
+    }, 300) // Кэш на 5 минут (вопросы редко меняются)
+
+    reply.send(result)
   } catch (error) {
     request.log.error(error)
     reply.code(500).send({ message: 'Ошибка сервера' })

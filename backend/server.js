@@ -17,10 +17,18 @@ import uploadsRoute from './routes/uploads.route.js'
 import gameStateRoute from './routes/gameState.route.js'
 import pool, { verifyDatabaseConnection } from './plugins/db.js'
 import { ensureDefaultAdmin } from './services/admin.service.js'
+import { initRedis } from './services/cache.service.js'
 
 dotenv.config()
 
-const app = Fastify({ logger: true })
+const app = Fastify({
+  logger: {
+    level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  },
+  bodyLimit: 10 * 1024 * 1024, // 10MB
+  requestTimeout: 30000, // 30 seconds
+  keepAliveTimeout: 72000, // 72 seconds
+})
 
 const uploadsDir = path.resolve(process.cwd(), 'uploads')
 await fs.mkdir(uploadsDir, { recursive: true })
@@ -53,10 +61,20 @@ app.decorate('io', null)
 
 app.addHook('onReady', async function () {
   await verifyDatabaseConnection()
+  await initRedis()
   await ensureDefaultAdmin(this.log)
   const io = new SocketIOServer(this.server, {
     cors: {
       origin: '*',
+    },
+    transports: ['websocket', 'polling'],
+    allowEIO3: true,
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    maxHttpBufferSize: 1e6,
+    allowRequest: (req, callback) => {
+      // Можно добавить проверку origin для безопасности
+      callback(null, true)
     },
   })
   this.io = io

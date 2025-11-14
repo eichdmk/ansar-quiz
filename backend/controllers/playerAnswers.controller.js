@@ -184,6 +184,13 @@ export async function submitAnswer(request, reply) {
 
     await client.query('COMMIT')
 
+    // Инвалидация кэша
+    const { invalidateQueueCache, invalidatePlayerCache } = await import('../services/cache.service.js')
+    await invalidateQueueCache(player.game_id, preparedQuestionId)
+    if (awarded) {
+      await invalidatePlayerCache(player.game_id)
+    }
+
     if (request.server?.io) {
       request.server.io.emit('player:answer', {
         playerId: preparedPlayerId,
@@ -293,6 +300,17 @@ export async function listPlayerAnswers(request, reply) {
 }
 
 async function getQueueForQuestion(gameId, questionId, client = pool) {
+  const cacheKey = `queue:${gameId}:${questionId}`
+  
+  // Пытаемся получить из кэша (но только если это не транзакция)
+  if (client === pool) {
+    const { get, set } = await import('../services/cache.service.js')
+    const cached = await get(cacheKey)
+    if (cached !== null) {
+      return cached
+    }
+  }
+
   const target = client.query ? client : pool
   const result = await target.query(
     `SELECT aq.id, aq.player_id, aq.position, aq.joined_at,
@@ -303,7 +321,7 @@ async function getQueueForQuestion(gameId, questionId, client = pool) {
      ORDER BY aq.position ASC, aq.joined_at ASC`,
     [gameId, questionId],
   )
-  return result.rows.map((row) => ({
+  const queue = result.rows.map((row) => ({
     id: row.id,
     playerId: row.player_id,
     position: row.position,
@@ -312,6 +330,14 @@ async function getQueueForQuestion(gameId, questionId, client = pool) {
     groupName: row.group_name,
     score: row.score,
   }))
+
+  // Сохраняем в кэш только если это не транзакция
+  if (client === pool) {
+    const { set } = await import('../services/cache.service.js')
+    await set(cacheKey, queue, 10) // Кэш на 10 секунд (очередь часто меняется)
+  }
+
+  return queue
 }
 
 async function assignQuestionToNextInQueue(io, gameId, questionId) {
@@ -388,6 +414,13 @@ async function emitQueueUpdate(io, gameId, questionId, client = pool) {
     return
   }
   const queue = await getQueueForQuestion(gameId, questionId, client)
+  
+  // Инвалидация кэша очереди при обновлении
+  if (client === pool) {
+    const { invalidateQueueCache } = await import('../services/cache.service.js')
+    await invalidateQueueCache(gameId, questionId)
+  }
+  
   io.emit('player:queueUpdated', {
     gameId,
     questionId,

@@ -63,6 +63,10 @@ export async function createQuiz(request, reply) {
     try {
         let result = await pool.query('INSERT INTO games(name) VALUES($1) RETURNING *', [name])
 
+        // Инвалидация кэша списка игр
+        const { delPattern } = await import('../services/cache.service.js')
+        await delPattern('games:list:*')
+
         reply.status(201).send(result.rows[0])
 
     } catch (error) {
@@ -83,26 +87,33 @@ export async function getQuizzes(request, reply) {
     }
 
     const offset = (page - 1) * limit
+    const cacheKey = `games:list:${page}:${limit}`
 
     try {
-        const [itemsResult, totalResult] = await Promise.all([
-            pool.query(
-                `SELECT id, name, created_at, status, current_question_index,
-                        question_duration, started_at, finished_at, is_question_closed
-                   FROM games
-                  ORDER BY created_at DESC
-                  LIMIT $1 OFFSET $2`,
-                [limit, offset]
-            ),
-            pool.query('SELECT COUNT(*)::int AS total FROM games'),
-        ])
+        const { cached, get } = await import('../services/cache.service.js')
+        
+        const result = await cached(cacheKey, async () => {
+            const [itemsResult, totalResult] = await Promise.all([
+                pool.query(
+                    `SELECT id, name, created_at, status, current_question_index,
+                            question_duration, started_at, finished_at, is_question_closed
+                       FROM games
+                      ORDER BY created_at DESC
+                      LIMIT $1 OFFSET $2`,
+                    [limit, offset]
+                ),
+                pool.query('SELECT COUNT(*)::int AS total FROM games'),
+            ])
 
-        reply.send({
-            items: itemsResult.rows,
-            total: totalResult.rows[0]?.total ?? 0,
-            page,
-            limit,
-        })
+            return {
+                items: itemsResult.rows,
+                total: totalResult.rows[0]?.total ?? 0,
+                page,
+                limit,
+            }
+        }, 60) // Кэш на 60 секунд
+
+        reply.send(result)
     } catch (error) {
         console.log('Ошибка:', error)
         reply.status(500).send({ message: 'Ошибка сервера' })
@@ -687,6 +698,10 @@ export async function startQuestion(request, reply) {
                     index: game.current_question_index,
                     total: totalQuestions,
                 })
+                
+                // Инвалидация кэша при старте вопроса
+                const { invalidateGameCache } = await import('../services/cache.service.js')
+                await invalidateGameCache(gameId)
             },
         })
 
@@ -773,6 +788,10 @@ export async function advanceQuizQuestion(request, reply) {
         await client.query('DELETE FROM answer_queue WHERE game_id = $1', [gameId])
 
         await client.query('COMMIT')
+
+        // Инвалидация кэша
+        const { invalidateGameCache } = await import('../services/cache.service.js')
+        await invalidateGameCache(gameId)
 
         let finished = false
 
