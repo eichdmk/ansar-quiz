@@ -1,82 +1,506 @@
-# Quiz Ansar Deployment Guide
+# Quiz Ansar - Система интерактивных квизов
 
-This project contains a Fastify + PostgreSQL backend and a React/Vite frontend that are packaged for production behind an Nginx reverse proxy with automatic HTTPS (Let's Encrypt / Certbot).
+Полнофункциональная система для проведения интерактивных квизов в реальном времени с поддержкой очереди ответов, лидерборда и административной панели.
 
-## Prerequisites
-- Docker Engine ≥ 24 and Docker Compose plugin.
-- Domain name pointing to the host (required for Let's Encrypt).
-- Ports `80` and `443` available on the host.
+## 📋 Описание проекта
 
-## Directory Layout
-- `backend/` — Fastify API and Socket.IO server.
-- `frontend/` — React SPA built with Vite.
-- `infra/nginx/` — Multi-stage Dockerfile for building the SPA and serving it via Nginx.
-- `ops/nginx/` — Parametrised Nginx configuration template.
-- `infra/certs/` — Mounted volume where TLS certificates are stored inside the Nginx container.
+Quiz Ansar - это веб-приложение для проведения интерактивных квизов, где:
+- **Администратор** создает игры, добавляет вопросы с изображениями, управляет ходом игры
+- **Игроки** присоединяются к игре, отвечают на вопросы в режиме реального времени
+- Система поддерживает **очередь ответов**: первый нажавший "Ответить" получает вопрос, остальные встают в очередь
+- Реализован **лидерборд** с отображением результатов в реальном времени
+- Используется **Redis кеширование** для оптимизации производительности
 
-## Configuration
-1. Copy the example environment files and edit them to match your environment:
-   ```bash
-   cp env.example .env
-   cp backend/env.example backend/.env
-   # Optional: used only for local Vite development
-   cp frontend/env.example frontend/.env
-   ```
-2. Update `.env`:
-   - `SERVER_NAME` — your public domain (e.g. `quiz.example.com`).
-   - `LETSENCRYPT_EMAIL` — email used for Let's Encrypt registration.
-   - `PUBLIC_API_URL` — public URL that the frontend should call (e.g. `https://quiz.example.com/api`).
-   - If you already have certificates, set `SSL_CERT_PATH` and `SSL_KEY_PATH` to the mounted paths inside the container (default `/etc/ssl/private/server.crt` and `/etc/ssl/private/server.key`).
-3. Update `backend/.env` as needed:
-   - Change `JWT_SECRET` and default admin credentials.
-   - Adjust database credentials when deploying to a managed PostgreSQL instance (set `DB_SSL=true` and provide CA bundle if necessary).
+## 🏗️ Архитектура
 
-## Building and Running
+Проект состоит из следующих компонентов:
+
+- **Backend** (Node.js + Fastify) - REST API и Socket.IO сервер
+- **Frontend** (React + Vite) - SPA интерфейс для админа и игроков
+- **PostgreSQL** - основная база данных
+- **Redis** - кеширование для оптимизации
+- **Nginx** - reverse proxy, статический сервер и SSL терминация
+
+## 🛠️ Технологический стек
+
+### Backend
+- **Fastify** 5.6.2 - высокопроизводительный веб-фреймворк
+- **Socket.IO** 4.8.1 - real-time коммуникация
+- **PostgreSQL** 16 - реляционная БД
+- **Redis** 7 - кеширование
+- **JWT** - аутентификация
+- **bcrypt** - хеширование паролей
+- **Sharp** - обработка изображений
+- **pg** - PostgreSQL клиент
+
+### Frontend
+- **React** 19.2.0 - UI библиотека
+- **Redux Toolkit** 2.10.1 - управление состоянием
+- **React Router** 7.9.5 - маршрутизация
+- **Socket.IO Client** 4.8.1 - real-time клиент
+- **Axios** 1.13.2 - HTTP клиент
+- **Vite** 7.2.2 - сборщик и dev-сервер
+
+### Инфраструктура
+- **Docker Compose** - оркестрация контейнеров
+- **Nginx** - reverse proxy и статический сервер
+- **Certbot** - автоматическое получение SSL сертификатов (Let's Encrypt)
+
+## 📊 API Endpoints
+
+Проект содержит **42 API endpoint**:
+
+### Аутентификация (`/api/auth`)
+- `POST /api/auth/setup-admin` - создание администратора
+- `POST /api/auth/login` - вход администратора
+
+### Игры/Квизы (`/api/quiz`) - 11 endpoints
+- `POST /api/quiz` - создать игру
+- `GET /api/quiz` - получить список игр
+- `GET /api/quiz/history` - история игр
+- `DELETE /api/quiz/:id` - удалить игру
+- `POST /api/quiz/:id/open` - открыть игру для присоединения
+- `POST /api/quiz/:id/reset` - сбросить игру
+- `POST /api/quiz/:id/restart` - перезапустить игру
+- `POST /api/quiz/:id/start` - начать игру
+- `POST /api/quiz/:id/stop` - остановить игру
+- `POST /api/quiz/:id/next` - перейти к следующему вопросу
+- `POST /api/quiz/:id/start-question` - запустить вопрос (начать отсчет)
+
+### Вопросы (`/api/questions`) - 8 endpoints
+- `POST /api/questions` - создать вопрос
+- `GET /api/questions` - получить все вопросы
+- `GET /api/questions/:gameId` - получить вопросы игры
+- `PUT /api/questions/:id` - обновить вопрос
+- `DELETE /api/questions/:id` - удалить вопрос
+- `POST /api/questions/import` - импорт вопросов
+- `GET /api/questions/export` - экспорт всех вопросов
+- `GET /api/questions/export/:gameId` - экспорт вопросов игры
+
+### Ответы (`/api/answers`) - 5 endpoints
+- `POST /api/answers` - создать ответ
+- `GET /api/answers` - получить все ответы
+- `GET /api/answers/:questionId` - получить ответы вопроса
+- `PATCH /api/answers/:id` - обновить ответ
+- `DELETE /api/answers/:id` - удалить ответ
+
+### Игроки (`/api/players`) - 5 endpoints
+- `POST /api/players` - создать игрока (публичный)
+- `GET /api/players` - получить всех игроков (admin)
+- `GET /api/players/:gameId` - получить игроков игры (admin)
+- `PATCH /api/players/:id/score` - обновить счет игрока (admin)
+- `DELETE /api/players/:id` - удалить игрока (admin)
+
+### Ответы игроков (`/api/player-answers`) - 7 endpoints
+- `POST /api/player-answers` - отправить ответ
+- `POST /api/player-answers/request-answer` - запросить вопрос (войти в очередь)
+- `POST /api/player-answers/skip` - пропустить вопрос
+- `GET /api/player-answers/queue` - получить очередь
+- `GET /api/player-answers/queue/:gameId` - получить очередь игры
+- `GET /api/player-answers` - получить все ответы (admin)
+- `GET /api/player-answers/:playerId` - получить ответы игрока (admin)
+
+### Загрузка файлов (`/api/uploads`) - 1 endpoint
+- `POST /api/uploads/question-image` - загрузить изображение вопроса
+
+### Состояние игры (`/api/game-state`) - 1 endpoint
+- `GET /api/game-state/:id/current-question` - получить текущий вопрос игры
+
+### Health Check
+- `GET /healthz` - проверка здоровья сервера
+
+## 🔌 Socket.IO События
+
+### События от сервера к клиентам:
+
+**Игра:**
+- `game:opened` - игра открыта для присоединения
+- `game:started` - игра началась
+- `game:finished` - игра завершена
+- `game:closed` - игра закрыта
+- `game:countdown` - отсчет до старта вопроса
+- `game:questionPreview` - предпросмотр вопроса (для админа)
+- `game:questionReady` - вопрос готов к ответу
+- `game:questionOpened` - вопрос открыт (старый формат)
+- `game:questionClosed` - вопрос закрыт
+
+**Игрок:**
+- `player:questionAssigned` - вопрос назначен игроку
+- `player:skipped` - игрок пропустил вопрос
+- `player:queueUpdated` - очередь обновлена
+- `player:scoreUpdated` - счет игрока обновлен
+
+## 🗄️ Структура базы данных
+
+### Таблицы:
+
+1. **admin** - администраторы системы
+   - `id`, `username`, `hash_password`
+
+2. **games** - игры/квизы
+   - `id`, `name`, `created_at`, `status`, `current_question_index`, `question_duration`, `started_at`, `finished_at`, `is_question_closed`
+
+3. **questions** - вопросы
+   - `id`, `game_id`, `question_text`, `image_url`, `created_at`, `position`
+
+4. **answers** - варианты ответов
+   - `id`, `question_id`, `answer_text`, `is_true`
+
+5. **players** - игроки
+   - `id`, `username`, `group_name`, `game_id`, `score`, `joined_at`
+
+6. **player_answers** - ответы игроков
+   - `id`, `player_id`, `question_id`, `answer_id`, `is_correct`, `answered_at`
+
+7. **answer_queue** - очередь ответов
+   - `id`, `game_id`, `question_id`, `player_id`, `position`, `joined_at`, `is_active`
+
+## 📁 Структура проекта
+
+```
+quiz-Ansar/
+├── backend/                 # Backend приложение
+│   ├── controllers/        # Контроллеры (бизнес-логика)
+│   ├── routes/             # Маршруты API
+│   ├── services/           # Сервисы (admin, cache, gameState)
+│   ├── plugins/            # Плагины (db)
+│   ├── middlware/         # Middleware (auth)
+│   ├── uploads/            # Загруженные файлы
+│   ├── init.sql           # SQL схема БД
+│   ├── server.js          # Точка входа сервера
+│   └── package.json
+├── frontend/               # Frontend приложение
+│   ├── src/
+│   │   ├── api/           # API клиенты
+│   │   ├── app/           # Redux store, hooks, socket
+│   │   ├── components/    # React компоненты
+│   │   ├── features/     # Redux slices
+│   │   ├── layouts/       # Layout компоненты
+│   │   ├── pages/         # Страницы приложения
+│   │   ├── utils/         # Утилиты
+│   │   └── router.jsx     # Маршрутизация
+│   └── package.json
+├── infra/                  # Инфраструктура
+│   ├── nginx/             # Nginx Dockerfile
+│   └── certs/             # SSL сертификаты
+├── ops/                    # Операционные конфигурации
+│   └── nginx/             # Nginx конфигурация
+├── docker-compose.yml      # Docker Compose конфигурация
+└── README.md
+```
+
+## 🚀 Развертывание (Deployment)
+
+### Требования
+
+- Docker Engine ≥ 24 и Docker Compose plugin
+- Доменное имя, указывающее на хост (для Let's Encrypt)
+- Порты `80` и `443` доступны на хосте
+- Минимум 4GB RAM (рекомендуется 8GB для 100+ пользователей)
+
+### Шаг 1: Подготовка окружения
+
+1. Клонируйте репозиторий:
+```bash
+git clone <repository-url>
+cd quiz-Ansar
+```
+
+2. Скопируйте примеры конфигурационных файлов:
+```bash
+cp env.example .env
+cp backend/env.example backend/.env
+```
+
+### Шаг 2: Настройка конфигурации
+
+#### Настройка `.env` (корневой файл):
+```env
+# PostgreSQL
+DB_NAME=ansar_quiz
+DB_USER=postgres
+DB_PASSWORD=your_secure_password
+POSTGRES_PASSWORD=your_secure_password
+
+# Frontend
+PUBLIC_API_URL=https://your-domain.com/api
+
+# Nginx / TLS
+SERVER_NAME=quiz.yourdomain.com
+LETSENCRYPT_EMAIL=admin@yourdomain.com
+ENABLE_SELF_SIGNED_CERTS=false
+```
+
+#### Настройка `backend/.env`:
+```env
+# Database
+DB_HOST=db
+DB_PORT=5432
+DB_NAME=ansar_quiz
+DB_USER=postgres
+DB_PASSWORD=your_secure_password
+
+# JWT
+JWT_SECRET=your_very_long_and_secure_secret_key_here
+BCRYPT_SALT_ROUNDS=10
+
+# Admin credentials
+ADMIN_DEFAULT_USERNAME=admin
+ADMIN_DEFAULT_PASSWORD=your_secure_admin_password
+
+# Redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=
+CACHE_TTL=300
+
+# Server
+PORT=3000
+HOST=0.0.0.0
+NODE_ENV=production
+```
+
+### Шаг 3: Инициализация базы данных
+
+1. Запустите только базу данных:
+```bash
+docker compose up -d db
+```
+
+2. Дождитесь готовности БД (проверьте статус):
+```bash
+docker compose ps
+```
+
+3. Примените схему базы данных:
+```bash
+docker compose exec -T db psql -U postgres -d ansar_quiz < backend/init.sql
+```
+
+### Шаг 4: Запуск всех сервисов
+
+1. Соберите образы:
 ```bash
 docker compose build
+```
+
+2. Запустите все сервисы:
+```bash
+docker compose up -d
+```
+
+Или пошагово:
+```bash
 docker compose up -d db
+docker compose up -d redis
 docker compose up -d backend
 docker compose up -d web
 ```
 
-The backend waits for PostgreSQL, applies connection retries, and exposes `/healthz` for container health checks. Nginx serves the built frontend, proxies `/api`, `/uploads`, and `/socket.io` to the backend, and enforces HTTPS.
+### Шаг 5: Получение SSL сертификатов
 
-## Database Bootstrap
-To initialise the schema using `backend/init.sql`:
-```bash
-docker compose exec -T db psql -U "${DB_USER}" -d "${DB_NAME}" < backend/init.sql
-```
-You can load seed data the same way.
+После того как домен указывает на ваш сервер и Nginx запущен:
 
-## Obtaining HTTPS Certificates
-Run Certbot using the dedicated profile once the `web` service is online and your domain points to the host:
+1. Получите сертификат через Certbot:
 ```bash
 docker compose --profile certbot run --rm certbot
+```
+
+2. Перезапустите Nginx:
+```bash
 docker compose restart web
 ```
 
-The Certbot container shares volumes with Nginx and copies the generated certificates into `infra/certs/`. Nginx automatically reloads the rendered configuration on restart. To renew certificates, repeat the command above (Let's Encrypt recommends automating this via cron).
-
-### Self-signed Certificates (Optional)
-For staging environments without public DNS you can enable self-signed certificates:
+3. Настройте автоматическое обновление сертификатов (cron):
 ```bash
-echo "ENABLE_SELF_SIGNED_CERTS=true" >> .env
-docker compose up -d web
+# Добавьте в crontab (crontab -e):
+0 0 * * * cd /path/to/quiz-Ansar && docker compose --profile certbot run --rm certbot && docker compose restart web
 ```
 
-## Logs and Monitoring
-- Backend logs: `docker compose logs -f backend`
-- Nginx logs: `docker compose logs -f web`
-- Database logs: `docker compose logs -f db`
+### Шаг 6: Проверка работы
 
-## Shutdown
+1. Проверьте статус всех контейнеров:
+```bash
+docker compose ps
+```
+
+2. Проверьте логи:
+```bash
+docker compose logs -f backend
+docker compose logs -f web
+```
+
+3. Откройте в браузере:
+   - `https://your-domain.com` - главная страница
+   - `https://your-domain.com/admin/login` - панель администратора
+   - `https://your-domain.com/player` - страница присоединения игрока
+
+## 🔐 Первый вход
+
+1. Откройте `/admin/login`
+2. Используйте учетные данные из `backend/.env`:
+   - Username: значение `ADMIN_DEFAULT_USERNAME`
+   - Password: значение `ADMIN_DEFAULT_PASSWORD`
+
+**⚠️ Важно:** После первого входа измените пароль администратора через API или напрямую в БД.
+
+## 📱 Использование
+
+### Для администратора:
+
+1. **Создание игры:**
+   - Войдите в панель администратора
+   - Создайте новую игру
+   - Добавьте вопросы с вариантами ответов
+   - Загрузите изображения для вопросов (опционально)
+
+2. **Запуск игры:**
+   - Откройте игру для присоединения (`Open`)
+   - Дождитесь присоединения игроков
+   - Нажмите `Start` для начала игры
+   - Нажмите `Next` для перехода к следующему вопросу
+   - Нажмите `Start Question` для запуска отсчета и открытия вопроса
+
+3. **Мониторинг:**
+   - Откройте `/admin/leaderboard` для просмотра лидерборда и очереди
+   - Отслеживайте результаты в реальном времени
+
+### Для игроков:
+
+1. **Присоединение:**
+   - Откройте `/player`
+   - Введите имя и группу
+   - Нажмите "Присоединиться"
+
+2. **Игра:**
+   - После отсчета нажмите "Ответить" для входа в очередь
+   - Если вы первый - получите вопрос сразу
+   - Если нет - встаньте в очередь и ждите
+   - Выберите ответ и нажмите "Ответить"
+   - Или нажмите "Пропустить" для передачи вопроса следующему
+
+## 🔧 Оптимизация производительности
+
+Проект оптимизирован для работы с **100+ одновременными пользователями**:
+
+- **Redis кеширование** для часто запрашиваемых данных:
+  - Список игр (TTL: 60 сек)
+  - Список игроков (TTL: 30 сек)
+  - Вопросы (TTL: 300 сек)
+  - Очередь ответов (TTL: 10 сек)
+
+- **PostgreSQL оптимизация:**
+  - Настроены индексы на часто используемые поля
+  - Оптимизированы настройки подключений
+  - Транзакции для критических операций
+
+- **Node.js оптимизация:**
+  - Ограничение памяти: 512MB
+  - Connection pooling для БД
+  - Оптимизированные Socket.IO настройки
+
+- **Nginx оптимизация:**
+  - Отключен кеш для Socket.IO
+  - Увеличены таймауты для long-polling
+  - Оптимизированы настройки проксирования
+
+## 📊 Мониторинг и логи
+
+### Просмотр логов:
+
+```bash
+# Все сервисы
+docker compose logs -f
+
+# Конкретный сервис
+docker compose logs -f backend
+docker compose logs -f web
+docker compose logs -f db
+docker compose logs -f redis
+```
+
+### Проверка здоровья:
+
+```bash
+# Backend health check
+curl http://localhost:3000/healthz
+
+# Проверка статуса контейнеров
+docker compose ps
+```
+
+## 🛑 Остановка и очистка
+
+### Остановка сервисов:
 ```bash
 docker compose down
 ```
-Add `--volumes` if you want to remove PostgreSQL data and uploaded files.
 
-## Troubleshooting
-- **Backend cannot connect to PostgreSQL** — check the `.env` credentials and ensure the database is healthy (`docker compose ps`).
-- **TLS certificate missing** — verify the files in `infra/certs/` or regenerate with Certbot; enable self-signed certs for local testing.
-- **Frontend API calls fail** — confirm `PUBLIC_API_URL` matches the public domain and that the Nginx container proxies to the backend (`docker compose logs web`).
+### Остановка с удалением данных:
+```bash
+docker compose down --volumes
+```
 
+⚠️ **Внимание:** Это удалит все данные PostgreSQL и загруженные файлы!
+
+## 🔄 Обновление
+
+1. Остановите сервисы:
+```bash
+docker compose down
+```
+
+2. Обновите код:
+```bash
+git pull
+```
+
+3. Пересоберите образы:
+```bash
+docker compose build --no-cache
+```
+
+4. Запустите сервисы:
+```bash
+docker compose up -d
+```
+
+5. При необходимости примените миграции БД:
+```bash
+docker compose exec -T db psql -U postgres -d ansar_quiz < backend/init.sql
+```
+
+## 🐛 Устранение неполадок
+
+### Backend не может подключиться к PostgreSQL
+- Проверьте учетные данные в `backend/.env`
+- Убедитесь, что БД запущена: `docker compose ps`
+- Проверьте логи: `docker compose logs db`
+
+### SSL сертификат отсутствует
+- Убедитесь, что домен указывает на ваш сервер
+- Проверьте файлы в `infra/certs/`
+- Перегенерируйте сертификат: `docker compose --profile certbot run --rm certbot`
+- Для локального тестирования включите self-signed: `ENABLE_SELF_SIGNED_CERTS=true`
+
+### Frontend не может подключиться к API
+- Проверьте `PUBLIC_API_URL` в `.env`
+- Убедитесь, что Nginx проксирует запросы: `docker compose logs web`
+- Проверьте CORS настройки в backend
+
+### Socket.IO не работает
+- Проверьте, что порт 443 открыт
+- Убедитесь, что Nginx правильно проксирует `/socket.io/`
+- Проверьте логи backend для ошибок подключения
+
+### Проблемы с производительностью
+- Увеличьте лимиты памяти в `docker-compose.yml`
+- Проверьте использование Redis: `docker compose exec redis redis-cli INFO memory`
+- Мониторьте логи PostgreSQL: `docker compose logs db`
+
+Разработано для проведения интерактивных квизов.
+
+---
+
+**Версия:** v1.4  
+**Последнее обновление:** 14.11.2025
