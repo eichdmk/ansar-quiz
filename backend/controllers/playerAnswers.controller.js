@@ -543,6 +543,10 @@ export async function requestAnswer(request, reply) {
 
       await client.query('COMMIT')
 
+      // Инвалидация кэша очереди
+      const { invalidateQueueCache } = await import('../services/cache.service.js')
+      await invalidateQueueCache(preparedGameId, questionId)
+
       if (request.server?.io) {
         request.server.io.emit('player:questionAssigned', {
           gameId: preparedGameId,
@@ -577,6 +581,10 @@ export async function requestAnswer(request, reply) {
       )
 
       await client.query('COMMIT')
+
+      // Инвалидация кэша очереди
+      const { invalidateQueueCache } = await import('../services/cache.service.js')
+      await invalidateQueueCache(preparedGameId, questionId)
 
       if (request.server?.io) {
         await emitQueueUpdate(request.server.io, preparedGameId, questionId)
@@ -661,6 +669,10 @@ export async function skipQuestion(request, reply) {
     )
 
     await client.query('COMMIT')
+
+    // Инвалидация кэша очереди
+    const { invalidateQueueCache } = await import('../services/cache.service.js')
+    await invalidateQueueCache(player.game_id, preparedQuestionId)
 
     if (request.server?.io) {
       request.server.io.emit('player:skipped', {

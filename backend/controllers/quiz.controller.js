@@ -233,6 +233,11 @@ export async function deleteQuiz(request, reply) {
 
         await pool.query("DELETE FROM games WHERE id = $1", [id])
 
+        // Инвалидация кэша игры и списка игр
+        const { invalidateGameCache, delPattern } = await import('../services/cache.service.js')
+        await invalidateGameCache(id)
+        await delPattern('games:list:*')
+
         reply.send(id)
     } catch (error) {
         console.log('Ошибка:', error)
@@ -302,6 +307,10 @@ export async function openQuiz(request, reply) {
         await client.query('COMMIT')
 
         clearCountdown(gameId)
+
+        // Инвалидация кэша игры
+        const { invalidateGameCache } = await import('../services/cache.service.js')
+        await invalidateGameCache(gameId)
 
         request.server.io.emit('game:opened', {
             gameId,
@@ -375,6 +384,10 @@ export async function resetQuiz(request, reply) {
         await client.query('COMMIT')
 
         clearCountdown(gameId)
+
+        // Инвалидация кэша игры
+        const { invalidateGameCache } = await import('../services/cache.service.js')
+        await invalidateGameCache(gameId)
 
         request.server.io.emit('game:closed', { gameId })
 
@@ -455,6 +468,10 @@ export async function restartQuiz(request, reply) {
         await client.query('COMMIT')
 
         clearCountdown(gameId)
+
+        // Инвалидация кэша игры
+        const { invalidateGameCache } = await import('../services/cache.service.js')
+        await invalidateGameCache(gameId)
 
         const io = request.server.io
         const game = updateGame.rows[0]
@@ -556,6 +573,11 @@ export async function startQuiz(request, reply) {
         const game = updateResult.rows[0]
 
         clearCountdown(gameId)
+
+        // Инвалидация кэша игры
+        const { invalidateGameCache } = await import('../services/cache.service.js')
+        await invalidateGameCache(gameId)
+
         if (firstQuestion) {
             // Отправляем первый вопрос в preview для админа (без отсчета)
             request.server.io.emit('game:questionPreview', {
@@ -609,6 +631,10 @@ export async function stopQuiz(request, reply) {
         )
 
         const game = updateResult.rows[0]
+
+        // Инвалидация кэша игры
+        const { invalidateGameCache } = await import('../services/cache.service.js')
+        await invalidateGameCache(gameId)
 
         request.server.io.emit('game:stopped', { gameId })
         request.server.io.emit('game:finished', { gameId })
@@ -761,6 +787,10 @@ export async function advanceQuizQuestion(request, reply) {
                 [gameId, nextIndex],
             )
             await client.query('COMMIT')
+
+            // Инвалидация кэша игры
+            const { invalidateGameCache } = await import('../services/cache.service.js')
+            await invalidateGameCache(gameId)
 
             request.server.io.emit('game:finished', { gameId })
 

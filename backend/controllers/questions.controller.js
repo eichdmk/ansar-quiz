@@ -156,14 +156,27 @@ export async function deleteQuestion(request, reply) {
     return
   }
   try {
+    // Сначала получаем gameId для инвалидации кеша
+    const questionResult = await pool.query(
+      'SELECT game_id FROM questions WHERE id = $1',
+      [id],
+    )
+    if (questionResult.rowCount === 0) {
+      reply.code(404).send({ message: 'Вопрос не найден' })
+      return
+    }
+    const gameId = questionResult.rows[0].game_id
+
+    // Удаляем вопрос
     const result = await pool.query(
       'DELETE FROM questions WHERE id = $1 RETURNING id',
       [id],
     )
-    if (result.rowCount === 0) {
-      reply.code(404).send({ message: 'Вопрос не найден' })
-      return
-    }
+
+    // Инвалидация кэша вопросов
+    const { invalidateQuestionCache } = await import('../services/cache.service.js')
+    await invalidateQuestionCache(gameId, id)
+
     reply.send({ id: id })
   } catch (error) {
     request.log.error(error)
@@ -276,12 +289,18 @@ export async function updateQuestion(request, reply) {
 
     await client.query('COMMIT')
 
+    const gameId = questionResult.rows[0].game_id
+
+    // Инвалидация кэша вопросов
+    const { invalidateQuestionCache } = await import('../services/cache.service.js')
+    await invalidateQuestionCache(gameId, questionId)
+
     reply.send({
       id: questionResult.rows[0].id,
       text: questionResult.rows[0].question_text,
       imageUrl: questionResult.rows[0].image_url,
       createdAt: questionResult.rows[0].created_at,
-      gameId: questionResult.rows[0].game_id,
+      gameId: gameId,
       position: questionResult.rows[0].position,
       answers: updatedAnswersResult.rows.map((row) => ({
         id: row.id,
@@ -389,6 +408,10 @@ export async function importQuestions(request, reply) {
     }
 
     await client.query('COMMIT')
+
+    // Инвалидация кэша вопросов
+    const { invalidateQuestionCache } = await import('../services/cache.service.js')
+    await invalidateQuestionCache(preparedGameId)
 
     reply.send({
       gameId: preparedGameId,

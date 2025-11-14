@@ -28,6 +28,14 @@ export async function createAnswer(request, reply) {
       'INSERT INTO answers (question_id, answer_text, is_true) VALUES ($1, $2, $3) RETURNING id, question_id, answer_text, is_true',
       [preparedQuestionId, preparedText, Boolean(isTrue)],
     )
+    
+    // Инвалидация кэша вопросов (вопросы кешируются вместе с ответами)
+    const questionResult = await pool.query('SELECT game_id FROM questions WHERE id = $1', [preparedQuestionId])
+    if (questionResult.rowCount > 0) {
+      const { invalidateQuestionCache } = await import('../services/cache.service.js')
+      await invalidateQuestionCache(questionResult.rows[0].game_id, preparedQuestionId)
+    }
+    
     reply.code(201).send({
       id: result.rows[0].id,
       questionId: result.rows[0].question_id,
@@ -57,6 +65,15 @@ export async function updateAnswer(request, reply) {
       reply.code(404).send({ message: 'Ответ не найден' })
       return
     }
+    
+    // Инвалидация кэша вопросов (вопросы кешируются вместе с ответами)
+    const questionId = result.rows[0].question_id
+    const questionResult = await pool.query('SELECT game_id FROM questions WHERE id = $1', [questionId])
+    if (questionResult.rowCount > 0) {
+      const { invalidateQuestionCache } = await import('../services/cache.service.js')
+      await invalidateQuestionCache(questionResult.rows[0].game_id, questionId)
+    }
+    
     reply.send({
       id: result.rows[0].id,
       questionId: result.rows[0].question_id,
@@ -76,14 +93,26 @@ export async function deleteAnswer(request, reply) {
     return
   }
   try {
+    // Сначала получаем questionId для инвалидации кеша
+    const answerResult = await pool.query('SELECT question_id FROM answers WHERE id = $1', [answerId])
+    if (answerResult.rowCount === 0) {
+      reply.code(404).send({ message: 'Ответ не найден' })
+      return
+    }
+    const questionId = answerResult.rows[0].question_id
+    
     const result = await pool.query(
       'DELETE FROM answers WHERE id = $1 RETURNING id',
       [answerId],
     )
-    if (result.rowCount === 0) {
-      reply.code(404).send({ message: 'Ответ не найден' })
-      return
+    
+    // Инвалидация кэша вопросов (вопросы кешируются вместе с ответами)
+    const questionResult = await pool.query('SELECT game_id FROM questions WHERE id = $1', [questionId])
+    if (questionResult.rowCount > 0) {
+      const { invalidateQuestionCache } = await import('../services/cache.service.js')
+      await invalidateQuestionCache(questionResult.rows[0].game_id, questionId)
     }
+    
     reply.send({ id: answerId })
   } catch (error) {
     request.log.error(error)

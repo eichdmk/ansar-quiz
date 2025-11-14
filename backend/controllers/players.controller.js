@@ -154,26 +154,25 @@ export async function deletePlayer(request, reply) {
     return
   }
   try {
+    // Получаем gameId перед удалением для инвалидации кэша
+    const gameResult = await pool.query('SELECT game_id FROM players WHERE id = $1', [playerId])
+    if (gameResult.rowCount === 0) {
+      reply.code(404).send({ message: 'Игрок не найден' })
+      return
+    }
+    const gameId = gameResult.rows[0].game_id
+
     const result = await pool.query(
       'DELETE FROM players WHERE id = $1 RETURNING id',
       [playerId],
     )
-    if (result.rowCount === 0) {
-      reply.code(404).send({ message: 'Игрок не найден' })
-      return
-    }
-    // Получаем gameId перед удалением для инвалидации кэша
-    const gameResult = await pool.query('SELECT game_id FROM players WHERE id = $1', [playerId])
-    const gameId = gameResult.rows[0]?.game_id
+
+    // Инвалидация кэша игроков
+    const { invalidatePlayerCache } = await import('../services/cache.service.js')
+    await invalidatePlayerCache(gameId)
 
     if (request.server?.io) {
       request.server.io.emit('player:left', { id: playerId })
-    }
-
-    // Инвалидация кэша игроков
-    if (gameId) {
-      const { invalidatePlayerCache } = await import('../services/cache.service.js')
-      await invalidatePlayerCache(gameId)
     }
 
     reply.send({ id: playerId })
