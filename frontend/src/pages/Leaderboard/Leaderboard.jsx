@@ -45,7 +45,7 @@ function Leaderboard() {
 
   useEffect(() => {
     if (!selectedGameId) {
-      return () => {}
+      return () => { }
     }
 
     const toNumber = (value) => {
@@ -543,14 +543,12 @@ function Leaderboard() {
               {sortedPlayers.map((player, index) => (
                 <div
                   key={player.id}
-                  className={`${styles.tableRow} ${
-                    rowAnimations[player.id] ? styles[`row${rowAnimations[player.id]}`] : ''
-                  } ${
-                    lastQuestionWinner?.id &&
-                    String(player.id) === String(lastQuestionWinner.id)
+                  className={`${styles.tableRow} ${rowAnimations[player.id] ? styles[`row${rowAnimations[player.id]}`] : ''
+                    } ${lastQuestionWinner?.id &&
+                      String(player.id) === String(lastQuestionWinner.id)
                       ? styles.tableRowWinner
                       : ''
-                  }`}
+                    }`}
                   style={{
                     ...getRowStyle(index),
                   }}
@@ -598,15 +596,15 @@ function Leaderboard() {
                       />
                     </span>
                     <span style={{ display: 'flex', flexDirection: 'column' }}>
-                    {index === 0 ? (
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span role="img" aria-hidden="true">
+                      {index === 0 ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span role="img" aria-hidden="true">
+                          </span>
+                          {player.username}
                         </span>
-                        {player.username}
-                      </span>
-                    ) : (
-                      player.username
-                    )}
+                      ) : (
+                        player.username
+                      )}
                     </span>
                   </span>
                   <span style={{ fontWeight: 500 }}>{player.groupName || '—'}</span>
@@ -619,8 +617,14 @@ function Leaderboard() {
                       fontWeight: 700,
                     }}
                   >
-                    <span role="img" aria-hidden="true">
-                      {index === 0 ? '🔥' : index < 3 ? '⚡' : '🎯'}
+                    <span style={{
+                      color: '#ffc107',
+                      fontSize: '2rem',
+                      lineHeight: '2rem',
+                      textShadow: '0 2px 8px #ffc10766',
+                      borderRadius: '50%',
+                    }} role="img" aria-hidden="true">
+                      ★
                     </span>
                     <span>{player.score ?? 0}</span>
                   </span>
@@ -655,7 +659,7 @@ function Leaderboard() {
           </div>
         )}
       </div>
-    </div>
+    </div >
   )
 }
 
