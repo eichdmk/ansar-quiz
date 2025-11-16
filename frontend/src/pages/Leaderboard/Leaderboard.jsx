@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSocket } from '../../app/SocketProvider.jsx'
 import { fetchPlayers } from '../../api/players.js'
 import { fetchGames } from '../../api/games.js'
+import { fetchQuestions } from '../../api/questions.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './Leaderboard.module.css'
 
@@ -20,6 +21,8 @@ function Leaderboard() {
   const [countdownValue, setCountdownValue] = useState(null)
   const [lastQuestionWinner, setLastQuestionWinner] = useState(null)
   const [queue, setQueue] = useState([])
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(null) // 0-based
+  const [totalQuestions, setTotalQuestions] = useState(null)
 
   useEffect(() => {
     setGamesLoading(true)
@@ -35,6 +38,12 @@ function Leaderboard() {
           } else {
             setGameStatus(items[0].status ?? 'waiting')
           }
+          // Инициализируем прогресс вопросов из игры/АПИ вопросов
+          setCurrentQuestionIndex(
+            typeof items[0].current_question_index === 'number'
+              ? items[0].current_question_index
+              : null,
+          )
         }
       })
       .catch((err) => {
@@ -99,6 +108,19 @@ function Leaderboard() {
       setCountdownValue(null)
       setLastQuestionWinner(null)
       setQueue([])
+      if (typeof payload.index === 'number') {
+        setCurrentQuestionIndex(payload.index)
+        setGames((prev) =>
+          prev.map((game) =>
+            toNumber(game.id) === toNumber(payload.gameId)
+              ? { ...game, current_question_index: payload.index }
+              : game,
+          ),
+        )
+      }
+      if (typeof payload.total === 'number') {
+        setTotalQuestions(payload.total)
+      }
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -146,6 +168,10 @@ function Leaderboard() {
       setCountdownValue(null)
       setGameStatus('ready')
       setLastQuestionWinner(null)
+      setCurrentQuestionIndex(0)
+      if (typeof payload.total === 'number') {
+        setTotalQuestions(payload.total)
+      }
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -166,6 +192,19 @@ function Leaderboard() {
         setGameStatus('running')
       }
       setLastQuestionWinner(null)
+      if (typeof payload.index === 'number') {
+        setCurrentQuestionIndex(payload.index)
+        setGames((prev) =>
+          prev.map((game) =>
+            toNumber(game.id) === toNumber(payload.gameId)
+              ? { ...game, current_question_index: payload.index }
+              : game,
+          ),
+        )
+      }
+      if (typeof payload.total === 'number') {
+        setTotalQuestions(payload.total)
+      }
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -182,6 +221,7 @@ function Leaderboard() {
       setCountdownValue(null)
       setGameStatus('waiting')
       setLastQuestionWinner(null)
+      setCurrentQuestionIndex(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -198,6 +238,21 @@ function Leaderboard() {
       setGameStatus('running')
       setCountdownValue(null)
       setLastQuestionWinner(null)
+      if (typeof payload.index === 'number') {
+        setCurrentQuestionIndex(payload.index)
+        setGames((prev) =>
+          prev.map((game) =>
+            toNumber(game.id) === toNumber(payload.gameId)
+              ? { ...game, current_question_index: payload.index }
+              : game,
+          ),
+        )
+      } else {
+        setCurrentQuestionIndex(0)
+      }
+      if (typeof payload.total === 'number') {
+        setTotalQuestions(payload.total)
+      }
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -227,6 +282,7 @@ function Leaderboard() {
         ),
       )
       setCountdownValue(null)
+      setCurrentQuestionIndex(null)
     }
 
     const handleGameFinished = (payload) => {
@@ -236,6 +292,7 @@ function Leaderboard() {
       setGameStatus('finished')
       setCountdownValue(null)
       setQueue([])
+      setCurrentQuestionIndex(null)
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
@@ -261,10 +318,54 @@ function Leaderboard() {
       setGameStatus('running')
       setLastQuestionWinner(null)
       setQueue([])
+      if (typeof payload.index === 'number') {
+        setCurrentQuestionIndex(payload.index)
+        setGames((prev) =>
+          prev.map((game) =>
+            toNumber(game.id) === toNumber(payload.gameId)
+              ? { ...game, current_question_index: payload.index }
+              : game,
+          ),
+        )
+      }
+      if (typeof payload.total === 'number') {
+        setTotalQuestions(payload.total)
+      }
       setGames((prev) =>
         prev.map((game) =>
           toNumber(game.id) === toNumber(payload.gameId)
             ? { ...game, status: 'running', is_question_closed: false }
+            : game,
+        ),
+      )
+    }
+
+    const handleQuestionPreview = (payload) => {
+      if (!isSameGame(payload.gameId)) {
+        return
+      }
+      // В превью показываем номер следующего вопроса до старта
+      setCountdownValue(null)
+      setLastQuestionWinner(null)
+      setQueue([])
+      if (typeof payload.index === 'number') {
+        setCurrentQuestionIndex(payload.index)
+        setGames((prev) =>
+          prev.map((game) =>
+            toNumber(game.id) === toNumber(payload.gameId)
+              ? { ...game, current_question_index: payload.index }
+              : game,
+          ),
+        )
+      }
+      if (typeof payload.total === 'number') {
+        setTotalQuestions(payload.total)
+      }
+      setGameStatus('closed')
+      setGames((prev) =>
+        prev.map((game) =>
+          toNumber(game.id) === toNumber(payload.gameId)
+            ? { ...game, status: 'running', is_question_closed: true }
             : game,
         ),
       )
@@ -278,6 +379,7 @@ function Leaderboard() {
     socket.on('game:opened', handleGameOpened)
     socket.on('game:countdown', handleCountdown)
     socket.on('game:questionReady', handleQuestionReady)
+    socket.on('game:questionPreview', handleQuestionPreview)
     socket.on('game:closed', handleGameClosed)
     socket.on('game:started', handleGameStarted)
     socket.on('game:stopped', handleGameStopped)
@@ -297,6 +399,7 @@ function Leaderboard() {
       socket.off('game:opened', handleGameOpened)
       socket.off('game:countdown', handleCountdown)
       socket.off('game:questionReady', handleQuestionReady)
+      socket.off('game:questionPreview', handleQuestionPreview)
       socket.off('game:closed', handleGameClosed)
       socket.off('game:started', handleGameStarted)
       socket.off('game:stopped', handleGameStopped)
@@ -308,6 +411,8 @@ function Leaderboard() {
   useEffect(() => {
     if (!selectedGameId) {
       setPlayers([])
+      setTotalQuestions(null)
+      setCurrentQuestionIndex(null)
       return
     }
     setLoading(true)
@@ -323,6 +428,28 @@ function Leaderboard() {
       .finally(() => setLoading(false))
     setLastQuestionWinner(null)
   }, [selectedGameId])
+
+  useEffect(() => {
+    if (!selectedGameId) {
+      return
+    }
+    // Загружаем количество вопросов для отображения общего числа
+    fetchQuestions(selectedGameId)
+      .then((data) => {
+        const items = data?.items ?? data ?? []
+        const total = Array.isArray(items) ? items.length : 0
+        setTotalQuestions(total)
+        // Пробуем взять текущий индекс из списка игр (если уже загружен)
+        const game = games.find((g) => g.id === selectedGameId)
+        if (game && typeof game.current_question_index === 'number') {
+          setCurrentQuestionIndex(game.current_question_index)
+        }
+      })
+      .catch(() => {
+        // Если не удалось получить список вопросов, просто скрываем счетчик
+        setTotalQuestions(null)
+      })
+  }, [selectedGameId, games])
 
   useEffect(() => {
     if (!selectedGameId) {
@@ -471,6 +598,20 @@ function Leaderboard() {
             </span>{' '}
             Код игры №{(selectedGameId && selectedGameId) || ''}
           </h2>
+          {totalQuestions !== null && totalQuestions !== undefined && totalQuestions > 0 && (
+            <div className={styles.progressBanner} aria-live="polite">
+              <div className={styles.progressBadge}>
+                <span className={styles.progressNumber}>
+                  {(typeof currentQuestionIndex === 'number' ? currentQuestionIndex + 1 : 1)}
+                </span>
+                <span className={styles.progressTotal}>/ {totalQuestions}</span>
+              </div>
+              <div className={styles.progressText}>
+
+
+              </div>
+            </div>
+          )}
           <div className={styles.gameSelector}>
             <label htmlFor="game-select">Выберите игру:</label>
             <select
