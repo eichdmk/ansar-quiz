@@ -637,26 +637,19 @@ function Dashboard() {
                       const questionId = queueData?.questionId || currentQuestion?.id
                       
                       // Определяем, есть ли у вопроса варианты ответа
-                      // 1. Из currentQuestion (если есть) - самый надежный способ
-                      // 2. По наличию игроков с waitingForEvaluation в очереди
+                      // Используем только currentQuestion для определения типа вопроса
                       let hasAnswerOptions = true
                       if (currentQuestion) {
                         hasAnswerOptions = (currentQuestion.answers ?? []).length > 0
-                      } else if (queue.length > 0) {
-                        // Если currentQuestion нет, но есть очередь, используем эвристику:
-                        // Для вопросов без вариантов игроки должны иметь waitingForEvaluation === true
-                        // или isCorrect === null (еще не оценены администратором)
-                        const hasPlayersWaitingForEvaluation = queue.some(
-                          (item) => item.waitingForEvaluation === true || (item.isCorrect === null || item.isCorrect === undefined)
-                        )
-                        // Если есть игроки, ожидающие оценки администратором, это скорее всего вопрос без вариантов
-                        if (hasPlayersWaitingForEvaluation) {
-                          hasAnswerOptions = false
-                        }
+                      } else {
+                        // Если currentQuestion нет, не можем определить тип вопроса
+                        // Не показываем панельку оценки (по умолчанию считаем, что есть варианты)
+                        hasAnswerOptions = true
                       }
                       
                       // Для вопросов без вариантов показываем кнопки для первого игрока в очереди
-                      if (!hasAnswerOptions && queue.length > 0 && questionId) {
+                      // Показываем панельку ТОЛЬКО если currentQuestion есть и у него нет вариантов ответа
+                      if (!hasAnswerOptions && currentQuestion && queue.length > 0 && questionId) {
                         // Первый игрок в очереди (position = 0 или первый в массиве) - это тот, кто сейчас отвечает
                         const currentPlayer = queue[0]
                         const needsEvaluation = currentPlayer && (currentPlayer.isCorrect === null || currentPlayer.isCorrect === undefined)
