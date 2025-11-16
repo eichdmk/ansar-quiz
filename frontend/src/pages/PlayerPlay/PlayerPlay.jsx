@@ -575,11 +575,11 @@ function PlayerPlay() {
       return
     }
     
-    // Проверяем, есть ли варианты ответа
-    const hasAnswerOptions = (currentQuestion.answers ?? []).length > 0
+    // Проверяем тип вопроса
+    const isVerbalQuestion = currentQuestion.questionType === 'verbal'
     
     // Для вопросов с вариантами требуется selectedAnswer
-    if (hasAnswerOptions && selectedAnswer === null) {
+    if (!isVerbalQuestion && selectedAnswer === null) {
       return
     }
     
@@ -588,7 +588,7 @@ function PlayerPlay() {
       const response = await submitAnswer({
         playerId: player.id,
         questionId: currentQuestion.id,
-        answerId: hasAnswerOptions ? selectedAnswer : undefined,
+        answerId: isVerbalQuestion ? undefined : selectedAnswer,
       })
       setAttemptLocked(true)
       setHasQuestion(false)
@@ -743,10 +743,10 @@ function PlayerPlay() {
               </div>
             )}
             {(() => {
-              const hasAnswerOptions = (currentQuestion.answers ?? []).length > 0
+              const isVerbalQuestion = currentQuestion.questionType === 'verbal'
               
-              if (!hasAnswerOptions) {
-                // Вопрос без вариантов ответа - устный ответ
+              if (isVerbalQuestion) {
+                // Устный вопрос - требует устного ответа
                 return (
                   <>
                     <div className={styles.stateBox}>

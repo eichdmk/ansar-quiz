@@ -69,7 +69,7 @@ function GameQuestions() {
   const [isUploading, setIsUploading] = useState(false)
   const [editingQuestionId, setEditingQuestionId] = useState(null)
   const [localError, setLocalError] = useState(null)
-  const [isQuestionWithoutOptions, setIsQuestionWithoutOptions] = useState(false)
+  const [questionType, setQuestionType] = useState('multiple_choice') // 'multiple_choice' или 'verbal'
   const importInputRef = useRef(null)
   const [isImporting, setIsImporting] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -87,7 +87,7 @@ function GameQuestions() {
     setLocalError(null)
     setIsUploading(false)
     setEditingQuestionId(null)
-    setIsQuestionWithoutOptions(false)
+    setQuestionType('multiple_choice')
   }
 
   const handleAddAnswer = () => {
@@ -121,8 +121,8 @@ function GameQuestions() {
       return 'Введите текст вопроса'
     }
     
-    // Если это вопрос без вариантов ответа, валидация не требуется
-    if (isQuestionWithoutOptions) {
+    // Если это устный вопрос, валидация не требуется
+    if (questionType === 'verbal') {
       return null
     }
     
@@ -151,8 +151,8 @@ function GameQuestions() {
     }
     setLocalError(null)
 
-    // Для вопросов без вариантов отправляем пустой массив
-    const preparedAnswers = isQuestionWithoutOptions
+    // Для устных вопросов отправляем пустой массив
+    const preparedAnswers = questionType === 'verbal'
       ? []
       : answers
           .map((item) => ({
@@ -314,12 +314,12 @@ function GameQuestions() {
       isTrue: Boolean(answer.isTrue),
     }))
     
-    // Определяем, является ли вопрос вопросом без вариантов
-    const hasNoOptions = normalizedAnswers.length === 0
-    setIsQuestionWithoutOptions(hasNoOptions)
+    // Определяем тип вопроса из данных или по наличию вариантов
+    const questionTypeFromData = question.questionType || (normalizedAnswers.length === 0 ? 'verbal' : 'multiple_choice')
+    setQuestionType(questionTypeFromData)
     
-    if (hasNoOptions) {
-      // Для вопроса без вариантов оставляем пустой массив или минимальный
+    if (questionTypeFromData === 'verbal') {
+      // Для устного вопроса оставляем пустой массив
       setAnswers(createDefaultAnswers())
     } else if (normalizedAnswers.length >= 2) {
       setAnswers(normalizedAnswers)
@@ -391,7 +391,7 @@ function GameQuestions() {
           <div className={styles.answersBlock}>
             <div className={styles.answersHeader}>
               <span>Варианты ответов</span>
-              {!isQuestionWithoutOptions && (
+              {questionType === 'multiple_choice' && (
                 <button type="button" className={styles.textButton} onClick={handleAddAnswer}>
                   Добавить ответ
                 </button>
@@ -401,10 +401,10 @@ function GameQuestions() {
             <label className={styles.checkboxField}>
               <input
                 type="checkbox"
-                checked={isQuestionWithoutOptions}
+                checked={questionType === 'verbal'}
                 onChange={(e) => {
                   const checked = e.target.checked
-                  setIsQuestionWithoutOptions(checked)
+                  setQuestionType(checked ? 'verbal' : 'multiple_choice')
                   if (checked) {
                     // При включении чекбокса очищаем ответы
                     setAnswers(createDefaultAnswers())
@@ -423,7 +423,7 @@ function GameQuestions() {
               <span>Вопрос без вариантов ответа (устный ответ, оценка администратором)</span>
             </label>
 
-            {!isQuestionWithoutOptions && (
+            {questionType === 'multiple_choice' && (
               <div className={styles.answersList}>
               {answers.map((answer, index) => (
                 <div key={answer.id ?? index} className={styles.answerRow}>
@@ -456,7 +456,7 @@ function GameQuestions() {
               </div>
             )}
             
-            {isQuestionWithoutOptions && (
+            {questionType === 'verbal' && (
               <div className={styles.infoBox}>
                 <p>Этот вопрос будет отображаться игрокам без вариантов ответа.</p>
                 <p>Игроки будут отвечать устно, а вы сможете оценить их ответы в панели управления игрой.</p>
@@ -546,7 +546,7 @@ function GameQuestions() {
                   </div>
                 </div>
 
-                {(question.answers ?? []).length === 0 ? (
+                {(question.questionType === 'verbal' || (question.answers ?? []).length === 0) ? (
                   <div className={styles.noOptionsInfo}>
                     <span className={styles.noOptionsBadge}>Вопрос без вариантов ответа</span>
                     <p>Игроки будут отвечать устно, оценка администратором</p>

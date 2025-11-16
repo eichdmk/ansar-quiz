@@ -38,6 +38,8 @@ export async function createQuestion(request, reply) {
   }
   const preparedImage = typeof imageUrl === 'string' ? imageUrl.trim() : null
   const cleanedAnswers = sanitizeAnswers(answers)
+  // Определяем тип вопроса: если нет вариантов ответа, то 'verbal', иначе 'multiple_choice'
+  const questionType = cleanedAnswers.length === 0 ? 'verbal' : 'multiple_choice'
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -47,8 +49,8 @@ export async function createQuestion(request, reply) {
     )
     const nextPosition = positionResult.rows[0]?.next ?? 1
     const questionResult = await client.query(
-      'INSERT INTO questions (question_text, game_id, image_url, position) VALUES ($1, $2, $3, $4) RETURNING id, question_text, game_id, image_url, created_at, position',
-      [preparedText, preparedGameId, preparedImage?.length ? preparedImage : null, nextPosition],
+      'INSERT INTO questions (question_text, game_id, image_url, position, question_type) VALUES ($1, $2, $3, $4, $5) RETURNING id, question_text, game_id, image_url, created_at, position, question_type',
+      [preparedText, preparedGameId, preparedImage?.length ? preparedImage : null, nextPosition, questionType],
     )
     const question = questionResult.rows[0]
     let createdAnswers = []
@@ -76,6 +78,7 @@ export async function createQuestion(request, reply) {
       createdAt: question.created_at,
       gameId: question.game_id,
       position: question.position,
+      questionType: question.question_type,
       answers: createdAnswers.map((row) => ({
         id: row.id,
         text: row.answer_text,
@@ -106,7 +109,7 @@ export async function listQuestions(request, reply) {
     
     const result = await cached(cacheKey, async () => {
       const questionsResult = await pool.query(
-        'SELECT id, question_text, image_url, created_at, position FROM questions WHERE game_id = $1 ORDER BY position ASC, created_at ASC',
+        'SELECT id, question_text, image_url, created_at, position, question_type FROM questions WHERE game_id = $1 ORDER BY position ASC, created_at ASC',
         [preparedGameId],
       )
       const questionIds = questionsResult.rows.map((item) => item.id)
@@ -133,6 +136,7 @@ export async function listQuestions(request, reply) {
         imageUrl: question.image_url,
         createdAt: question.created_at,
         position: question.position,
+        questionType: question.question_type,
         answers: answersMap.get(question.id) ?? [],
       }))
       return {
@@ -222,6 +226,9 @@ export async function updateQuestion(request, reply) {
 
   const normalizedAnswers = normalizeAnswersForUpdate(answers)
   
+  // Определяем тип вопроса: если нет вариантов ответа, то 'verbal', иначе 'multiple_choice'
+  const questionType = normalizedAnswers.length === 0 ? 'verbal' : 'multiple_choice'
+  
   // Разрешаем вопросы без вариантов ответа (пустой массив)
   if (normalizedAnswers.length === 0) {
     // Вопрос без вариантов - это допустимо
@@ -241,8 +248,8 @@ export async function updateQuestion(request, reply) {
   try {
     await client.query('BEGIN')
     const questionResult = await client.query(
-      'UPDATE questions SET question_text = $1, image_url = $2 WHERE id = $3 RETURNING id, question_text, image_url, created_at, game_id, position',
-      [preparedText, imageUrl?.trim() || null, questionId],
+      'UPDATE questions SET question_text = $1, image_url = $2, question_type = $3 WHERE id = $4 RETURNING id, question_text, image_url, created_at, game_id, position, question_type',
+      [preparedText, imageUrl?.trim() || null, questionType, questionId],
     )
 
     if (questionResult.rowCount === 0) {
@@ -309,6 +316,7 @@ export async function updateQuestion(request, reply) {
       createdAt: questionResult.rows[0].created_at,
       gameId: gameId,
       position: questionResult.rows[0].position,
+      questionType: questionResult.rows[0].question_type,
       answers: updatedAnswersResult.rows.map((row) => ({
         id: row.id,
         text: row.answer_text,

@@ -24,6 +24,7 @@ function mapQuestion(row) {
     text: row.text,
     imageUrl: row.image_url,
     position: row.position,
+    questionType: row.question_type || 'multiple_choice',
     answers: answersSource.map(mapAnswer),
   }
 }
@@ -41,6 +42,7 @@ export async function getQuestionByIndex(gameId, index, client = pool) {
             q.question_text AS text,
             q.image_url,
             q.position,
+            q.question_type,
             COALESCE(
               json_agg(
                 json_build_object('id', a.id, 'text', a.answer_text)

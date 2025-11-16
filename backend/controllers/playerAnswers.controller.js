@@ -64,7 +64,7 @@ export async function submitAnswer(request, reply) {
     }
 
     const questionResult = await client.query(
-      'SELECT id, game_id, position FROM questions WHERE id = $1',
+      'SELECT id, game_id, position, question_type FROM questions WHERE id = $1',
       [preparedQuestionId],
     )
     if (questionResult.rowCount === 0) {
@@ -79,18 +79,21 @@ export async function submitAnswer(request, reply) {
       return
     }
 
-    // Проверяем, есть ли у вопроса варианты ответа
-    const answersCountResult = await client.query(
-      'SELECT COUNT(*)::int AS count FROM answers WHERE question_id = $1',
-      [preparedQuestionId],
-    )
-    const answersCount = answersCountResult.rows[0]?.count ?? 0
-    const hasAnswerOptions = answersCount > 0
+    const questionType = question.question_type || 'multiple_choice'
+    const isVerbalQuestion = questionType === 'verbal'
 
     let isCorrect = null
     let answer = null
 
-    if (hasAnswerOptions) {
+    if (isVerbalQuestion) {
+      // Вопрос без вариантов ответа (устный) - answerId не требуется, is_correct будет установлен администратором
+      if (preparedAnswerId !== null) {
+        await client.query('ROLLBACK')
+        reply.code(400).send({ message: 'Для устного вопроса не требуется answerId' })
+        return
+      }
+      // isCorrect остается null - будет установлен администратором через evaluateAnswer
+    } else {
       // Вопрос с вариантами ответа - требуется answerId
       if (preparedAnswerId === null) {
         await client.query('ROLLBACK')
@@ -114,14 +117,6 @@ export async function submitAnswer(request, reply) {
         return
       }
       isCorrect = Boolean(answer.is_true)
-    } else {
-      // Вопрос без вариантов ответа - answerId не требуется, is_correct будет установлен администратором
-      if (preparedAnswerId !== null) {
-        await client.query('ROLLBACK')
-        reply.code(400).send({ message: 'Для вопроса без вариантов ответа не требуется answerId' })
-        return
-      }
-      // isCorrect остается null - будет установлен администратором через evaluateAnswer
     }
 
     const currentIndex = Math.max(0, (question.position ?? 1) - 1)
@@ -162,24 +157,38 @@ export async function submitAnswer(request, reply) {
       return
     }
 
-    const insertResult = await client.query(
-      `INSERT INTO player_answers (player_id, question_id, answer_id, is_correct)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (player_id, question_id)
-       DO UPDATE SET answer_id = EXCLUDED.answer_id,
-                     is_correct = EXCLUDED.is_correct,
-                     answered_at = NOW()
-       RETURNING id, answered_at, is_correct`,
-      [preparedPlayerId, preparedQuestionId, preparedAnswerId, isCorrect],
-    )
+    let insertResult
+    if (isVerbalQuestion) {
+      // Для устных вопросов создаем запись в verbal_question_responses
+      insertResult = await client.query(
+        `INSERT INTO verbal_question_responses (player_id, question_id, is_correct)
+         VALUES ($1, $2, NULL)
+         ON CONFLICT (player_id, question_id)
+         DO UPDATE SET answered_at = NOW()
+         RETURNING id, answered_at, is_correct`,
+        [preparedPlayerId, preparedQuestionId],
+      )
+    } else {
+      // Для вопросов с вариантами используем player_answers
+      insertResult = await client.query(
+        `INSERT INTO player_answers (player_id, question_id, answer_id, is_correct)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (player_id, question_id)
+         DO UPDATE SET answer_id = EXCLUDED.answer_id,
+                       is_correct = EXCLUDED.is_correct,
+                       answered_at = NOW()
+         RETURNING id, answered_at, is_correct`,
+        [preparedPlayerId, preparedQuestionId, preparedAnswerId, isCorrect],
+      )
+    }
 
     let awarded = false
     let updatedPlayer = null
 
-    // Для вопросов без вариантов (isCorrect === null) администратор оценит ответ позже через evaluateAnswer
+    // Для устных вопросов (isCorrect === null) администратор оценит ответ позже через evaluateAnswer
     // Здесь только создаем запись и оставляем игрока в очереди
-    if (isCorrect === null) {
-      // Вопрос без вариантов - ждем оценки администратора
+    if (isVerbalQuestion) {
+      // Устный вопрос - ждем оценки администратора
       // Игрок остается в очереди, администратор увидит его и оценит ответ
     } else if (isCorrect) {
       // Правильный ответ на вопрос с вариантами
@@ -234,8 +243,8 @@ export async function submitAnswer(request, reply) {
         waitingForEvaluation: isCorrect === null,
       })
       
-      if (isCorrect === null) {
-        // Вопрос без вариантов - обновляем очередь, чтобы администратор увидел игрока
+      if (isVerbalQuestion) {
+        // Устный вопрос - обновляем очередь, чтобы администратор увидел игрока
         await emitQueueUpdate(request.server.io, player.game_id, preparedQuestionId)
       } else if (awarded && updatedPlayer) {
         // Правильный ответ на вопрос с вариантами
@@ -351,14 +360,29 @@ async function getQueueForQuestion(gameId, questionId, client = pool) {
     }
   }
 
+  // Определяем тип вопроса
   const target = client.query ? client : pool
+  const questionTypeResult = await target.query(
+    'SELECT question_type FROM questions WHERE id = $1',
+    [questionId],
+  )
+  const questionType = questionTypeResult.rowCount > 0 
+    ? (questionTypeResult.rows[0].question_type || 'multiple_choice')
+    : 'multiple_choice'
+  const isVerbalQuestion = questionType === 'verbal'
+
+  // Используем соответствующую таблицу в зависимости от типа вопроса
   const result = await target.query(
     `SELECT aq.id, aq.player_id, aq.position, aq.joined_at,
             p.username, p.group_name, p.score,
-            pa.is_correct
+            ${isVerbalQuestion 
+              ? 'vqr.is_correct' 
+              : 'pa.is_correct'} as is_correct
      FROM answer_queue aq
      JOIN players p ON aq.player_id = p.id
-     LEFT JOIN player_answers pa ON pa.player_id = aq.player_id AND pa.question_id = aq.question_id
+     ${isVerbalQuestion
+       ? 'LEFT JOIN verbal_question_responses vqr ON vqr.player_id = aq.player_id AND vqr.question_id = aq.question_id'
+       : 'LEFT JOIN player_answers pa ON pa.player_id = aq.player_id AND pa.question_id = aq.question_id'}
      WHERE aq.game_id = $1 AND aq.question_id = $2 AND aq.is_active = TRUE
      ORDER BY aq.position ASC, aq.joined_at ASC`,
     [gameId, questionId],
@@ -389,6 +413,7 @@ async function assignQuestionToNextInQueue(io, gameId, questionId) {
     return
   }
   const client = await pool.connect()
+  let clientReleased = false
   try {
     await client.query('BEGIN')
     
@@ -442,12 +467,12 @@ async function assignQuestionToNextInQueue(io, gameId, questionId) {
     }
 
     await client.query('COMMIT')
-    client.release()
-
-    // Всегда обновляем очередь через socket, даже если следующего игрока нет
-    await emitQueueUpdate(io, gameId, questionId)
   } catch (error) {
-    await client.query('ROLLBACK')
+    try {
+      await client.query('ROLLBACK')
+    } catch (rollbackError) {
+      console.error('Error during rollback:', rollbackError)
+    }
     console.error('Error assigning question to next in queue:', error)
     // Отправляем ошибку через socket для уведомления админа
     if (io) {
@@ -458,7 +483,20 @@ async function assignQuestionToNextInQueue(io, gameId, questionId) {
       })
     }
   } finally {
-    client.release()
+    if (!clientReleased) {
+      try {
+        client.release()
+        clientReleased = true
+      } catch (releaseError) {
+        // Игнорируем ошибку освобождения, если клиент уже освобожден
+        console.error('Error releasing client (may already be released):', releaseError.message)
+      }
+    }
+    // Всегда обновляем очередь через socket, даже если следующего игрока нет
+    // Вызываем после освобождения клиента, так как emitQueueUpdate использует pool напрямую
+    emitQueueUpdate(io, gameId, questionId).catch((err) => {
+      console.error('Error emitting queue update:', err)
+    })
   }
 }
 
@@ -798,6 +836,24 @@ export async function evaluateAnswer(request, reply) {
       return
     }
 
+    // Проверяем тип вопроса - оценка разрешена только для устных вопросов
+    const questionResult = await client.query(
+      'SELECT id, question_type FROM questions WHERE id = $1',
+      [preparedQuestionId],
+    )
+    if (questionResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(404).send({ message: 'Вопрос не найден' })
+      return
+    }
+    const question = questionResult.rows[0]
+    const questionType = question.question_type || 'multiple_choice'
+    if (questionType !== 'verbal') {
+      await client.query('ROLLBACK')
+      reply.code(400).send({ message: 'Оценка разрешена только для устных вопросов (без вариантов ответа)' })
+      return
+    }
+
     // Проверяем, что игрок в очереди, активен и является первым в очереди
     // Объединяем проверку в один запрос для оптимизации
     const queueCheckResult = await client.query(
@@ -826,38 +882,38 @@ export async function evaluateAnswer(request, reply) {
       return
     }
 
-    // Проверяем, есть ли запись об ответе игрока, если нет - создаем
+    // Проверяем, есть ли запись об ответе игрока в verbal_question_responses, если нет - создаем
     const answerResult = await client.query(
-      'SELECT id, is_correct FROM player_answers WHERE player_id = $1 AND question_id = $2',
+      'SELECT id, is_correct FROM verbal_question_responses WHERE player_id = $1 AND question_id = $2',
       [preparedPlayerId, preparedQuestionId],
     )
     
-    let answerId
+    let responseId
     if (answerResult.rowCount === 0) {
-      // Создаем запись об ответе для вопроса без вариантов
+      // Создаем запись об ответе для устного вопроса
       const insertResult = await client.query(
-        `INSERT INTO player_answers (player_id, question_id, answer_id, is_correct)
-         VALUES ($1, $2, NULL, NULL)
+        `INSERT INTO verbal_question_responses (player_id, question_id, is_correct)
+         VALUES ($1, $2, NULL)
          RETURNING id`,
         [preparedPlayerId, preparedQuestionId],
       )
-      answerId = insertResult.rows[0].id
+      responseId = insertResult.rows[0].id
     } else {
-      const existingAnswer = answerResult.rows[0]
+      const existingResponse = answerResult.rows[0]
       
       // Проверяем, что ответ еще не был оценен (is_correct должен быть NULL)
-      if (existingAnswer.is_correct !== null) {
+      if (existingResponse.is_correct !== null) {
         await client.query('ROLLBACK')
         reply.code(409).send({ message: 'Ответ уже был оценен' })
         return
       }
-      answerId = existingAnswer.id
+      responseId = existingResponse.id
     }
 
-    // Обновляем оценку ответа
+    // Обновляем оценку ответа в verbal_question_responses
     await client.query(
-      'UPDATE player_answers SET is_correct = $1 WHERE id = $2',
-      [isCorrect, answerId],
+      'UPDATE verbal_question_responses SET is_correct = $1, evaluated_at = NOW() WHERE id = $2',
+      [isCorrect, responseId],
     )
 
     let awarded = false

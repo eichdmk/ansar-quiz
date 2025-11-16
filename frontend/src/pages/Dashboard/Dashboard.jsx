@@ -636,41 +636,21 @@ function Dashboard() {
                       const queue = queueData?.queue || []
                       const questionId = queueData?.questionId || currentQuestion?.id
                       
-                      // Определяем, есть ли у вопроса варианты ответа
-                      // Используем только currentQuestion для определения типа вопроса
+                      // Определяем тип вопроса по полю questionType
                       // Важно: проверяем, что currentQuestion.id совпадает с questionId
-                      let hasAnswerOptions = true
-                      let isQuestionWithoutOptions = false
-                      
-                      // Проверяем, что questionId определен и является числом
                       const isValidQuestionId = questionId != null && !Number.isNaN(Number(questionId))
+                      const isVerbalQuestion = currentQuestion && 
+                                                isValidQuestionId && 
+                                                currentQuestion.id === Number(questionId) &&
+                                                currentQuestion.questionType === 'verbal'
                       
-                      // Проверяем, что currentQuestion существует и содержит поле answers
-                      if (currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId)) {
-                        // Проверяем, что это тот же вопрос, что и в очереди
-                        const answers = currentQuestion.answers
-                        // Явно проверяем, что answers - это массив и он пустой
-                        if (Array.isArray(answers)) {
-                          hasAnswerOptions = answers.length > 0
-                          isQuestionWithoutOptions = answers.length === 0
-                        } else {
-                          // Если answers не массив или undefined, считаем что есть варианты (безопаснее)
-                          hasAnswerOptions = true
-                          isQuestionWithoutOptions = false
-                        }
-                      } else {
-                        // Если currentQuestion нет или это другой вопрос, не показываем панельку
-                        hasAnswerOptions = true
-                        isQuestionWithoutOptions = false
-                      }
-                      
-                      // Для вопросов без вариантов показываем кнопки для первого игрока в очереди
+                      // Для устных вопросов показываем кнопки для первого игрока в очереди
                       // Показываем панельку ТОЛЬКО если:
-                      // 1. Это вопрос без вариантов (isQuestionWithoutOptions === true)
+                      // 1. Это устный вопрос (questionType === 'verbal')
                       // 2. currentQuestion есть и совпадает с questionId
                       // 3. Есть очередь и questionId валиден
                       // 4. Вопрос открыт (не в preview)
-                      if (isQuestionWithoutOptions && currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId) && queue.length > 0) {
+                      if (isVerbalQuestion && currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId) && queue.length > 0) {
                         // Первый игрок в очереди (position = 0 или первый в массиве) - это тот, кто сейчас отвечает
                         const currentPlayer = queue[0]
                         const needsEvaluation = currentPlayer && (currentPlayer.isCorrect === null || currentPlayer.isCorrect === undefined)

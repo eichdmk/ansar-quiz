@@ -1,6 +1,7 @@
 DROP DATABASE IF EXISTS ansar_quiz;
 CREATE DATABASE ansar_quiz;
 \c ansar_quiz;
+DROP TABLE IF EXISTS verbal_question_responses CASCADE;
 DROP TABLE IF EXISTS player_answers CASCADE;
 DROP TABLE IF EXISTS players CASCADE;
 DROP TABLE IF EXISTS answers CASCADE;
@@ -31,7 +32,8 @@ CREATE TABLE questions (
     question_text TEXT NOT NULL,
     image_url TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
-    position INTEGER DEFAULT 0
+    position INTEGER DEFAULT 0,
+    question_type VARCHAR(20) DEFAULT 'multiple_choice' CHECK (question_type IN ('multiple_choice', 'verbal'))
 );
 CREATE TABLE answers (
     id SERIAL PRIMARY KEY,
@@ -56,10 +58,23 @@ CREATE TABLE player_answers (
     answered_at TIMESTAMP DEFAULT NOW(),
     UNIQUE (player_id, question_id)
 );
+-- Таблица для устных ответов (вопросы без вариантов)
+CREATE TABLE verbal_question_responses (
+    id SERIAL PRIMARY KEY,
+    player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    is_correct BOOLEAN,
+    evaluated_at TIMESTAMP,
+    answered_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (player_id, question_id)
+);
 CREATE INDEX idx_questions_game ON questions(game_id);
+CREATE INDEX idx_questions_type ON questions(question_type);
 CREATE INDEX idx_answers_question ON answers(question_id);
 CREATE INDEX idx_players_game ON players(game_id);
 CREATE INDEX idx_player_answers_question ON player_answers(question_id);
+CREATE INDEX idx_verbal_responses_question ON verbal_question_responses(question_id);
+CREATE INDEX idx_verbal_responses_player ON verbal_question_responses(player_id);
 -- Таблица очереди ответов
 CREATE TABLE answer_queue (
     id SERIAL PRIMARY KEY,
@@ -73,3 +88,14 @@ CREATE TABLE answer_queue (
 );
 CREATE INDEX idx_answer_queue_game_question ON answer_queue(game_id, question_id, position);
 CREATE INDEX idx_answer_queue_active ON answer_queue(game_id, question_id, is_active) WHERE is_active = TRUE;
+
+-- Миграция существующих данных: определяем вопросы без вариантов и устанавливаем question_type
+-- Вопросы без вариантов (нет записей в answers) получают question_type = 'verbal'
+UPDATE questions 
+SET question_type = 'verbal' 
+WHERE id NOT IN (SELECT DISTINCT question_id FROM answers WHERE question_id IS NOT NULL);
+
+-- Остальные вопросы получают question_type = 'multiple_choice' (уже установлено по умолчанию)
+UPDATE questions 
+SET question_type = 'multiple_choice' 
+WHERE question_type IS NULL OR question_type = '';
