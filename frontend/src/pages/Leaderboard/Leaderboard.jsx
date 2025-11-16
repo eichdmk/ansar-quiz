@@ -599,18 +599,12 @@ function Leaderboard() {
             Код игры №{(selectedGameId && selectedGameId) || ''}
           </h2>
           {totalQuestions !== null && totalQuestions !== undefined && totalQuestions > 0 && (
-            <div className={styles.progressBanner} aria-live="polite">
               <div className={styles.progressBadge}>
                 <span className={styles.progressNumber}>
-                  {(typeof currentQuestionIndex === 'number' ? currentQuestionIndex + 1 : 1)}
+                  Вопрос №{(typeof currentQuestionIndex === 'number' ? currentQuestionIndex + 1 : 1)}
                 </span>
                 <span className={styles.progressTotal}>/ {totalQuestions}</span>
               </div>
-              <div className={styles.progressText}>
-
-
-              </div>
-            </div>
           )}
           <div className={styles.gameSelector}>
             <label htmlFor="game-select">Выберите игру:</label>
