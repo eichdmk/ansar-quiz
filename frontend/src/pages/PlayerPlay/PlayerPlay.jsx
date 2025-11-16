@@ -749,9 +749,22 @@ function PlayerPlay() {
                 // Устный вопрос - требует устного ответа
                 return (
                   <>
-                    <div className={styles.stateBox}>
-                      <p>Этот вопрос требует устного ответа.</p>
-                      <p>Ответьте устно ведущему. Администратор оценит ваш ответ.</p>
+                    <div className={styles.verbalQuestionBox}>
+                      <div className={styles.verbalQuestionIcon}>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                          <line x1="12" y1="19" x2="12" y2="23"></line>
+                          <line x1="8" y1="23" x2="16" y2="23"></line>
+                        </svg>
+                      </div>
+                      <h3 className={styles.verbalQuestionTitle}>Устный ответ</h3>
+                      <p className={styles.verbalQuestionText}>
+                        Этот вопрос требует <strong>устного ответа</strong>.
+                      </p>
+                      <p className={styles.verbalQuestionInstruction}>
+                        Ответьте устно ведущему. Администратор оценит ваш ответ и нажмет кнопку "Правильно" или "Неправильно".
+                      </p>
                     </div>
                     <div className={styles.actionsRow}>
                       <button
