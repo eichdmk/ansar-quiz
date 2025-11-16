@@ -631,25 +631,46 @@ function Dashboard() {
                         </div>
                       </div>
                     )}
-                    {game.status === 'running' && (() => {
+                    {game.status === 'running' && !isQuestionInPreview && (() => {
                       const queueData = queues[Number(game.id)]
                       const queue = queueData?.queue || []
                       const questionId = queueData?.questionId || currentQuestion?.id
                       
                       // Определяем, есть ли у вопроса варианты ответа
                       // Используем только currentQuestion для определения типа вопроса
+                      // Важно: проверяем, что currentQuestion.id совпадает с questionId
                       let hasAnswerOptions = true
-                      if (currentQuestion) {
-                        hasAnswerOptions = (currentQuestion.answers ?? []).length > 0
+                      let isQuestionWithoutOptions = false
+                      
+                      // Проверяем, что questionId определен и является числом
+                      const isValidQuestionId = questionId != null && !Number.isNaN(Number(questionId))
+                      
+                      // Проверяем, что currentQuestion существует и содержит поле answers
+                      if (currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId)) {
+                        // Проверяем, что это тот же вопрос, что и в очереди
+                        const answers = currentQuestion.answers
+                        // Явно проверяем, что answers - это массив и он пустой
+                        if (Array.isArray(answers)) {
+                          hasAnswerOptions = answers.length > 0
+                          isQuestionWithoutOptions = answers.length === 0
+                        } else {
+                          // Если answers не массив или undefined, считаем что есть варианты (безопаснее)
+                          hasAnswerOptions = true
+                          isQuestionWithoutOptions = false
+                        }
                       } else {
-                        // Если currentQuestion нет, не можем определить тип вопроса
-                        // Не показываем панельку оценки (по умолчанию считаем, что есть варианты)
+                        // Если currentQuestion нет или это другой вопрос, не показываем панельку
                         hasAnswerOptions = true
+                        isQuestionWithoutOptions = false
                       }
                       
                       // Для вопросов без вариантов показываем кнопки для первого игрока в очереди
-                      // Показываем панельку ТОЛЬКО если currentQuestion есть и у него нет вариантов ответа
-                      if (!hasAnswerOptions && currentQuestion && queue.length > 0 && questionId) {
+                      // Показываем панельку ТОЛЬКО если:
+                      // 1. Это вопрос без вариантов (isQuestionWithoutOptions === true)
+                      // 2. currentQuestion есть и совпадает с questionId
+                      // 3. Есть очередь и questionId валиден
+                      // 4. Вопрос открыт (не в preview)
+                      if (isQuestionWithoutOptions && currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId) && queue.length > 0) {
                         // Первый игрок в очереди (position = 0 или первый в массиве) - это тот, кто сейчас отвечает
                         const currentPlayer = queue[0]
                         const needsEvaluation = currentPlayer && (currentPlayer.isCorrect === null || currentPlayer.isCorrect === undefined)
