@@ -443,6 +443,82 @@
   color: #1b6ad6;
 }
 
+.checkboxField {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(33, 150, 243, 0.06);
+  border: 1px solid rgba(33, 150, 243, 0.18);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.checkboxField:hover {
+  background: rgba(33, 150, 243, 0.1);
+  border-color: rgba(33, 150, 243, 0.28);
+}
+
+.checkboxField input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #2196f3;
+}
+
+.checkboxField span {
+  font-size: 14px;
+  color: #1d3b5a;
+  font-weight: 500;
+  flex: 1;
+}
+
+.infoBox {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  color: #856404;
+}
+
+.infoBox p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.infoBox p + p {
+  margin-top: 8px;
+}
+
+.noOptionsInfo {
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(33, 150, 243, 0.08);
+  border: 1px solid rgba(33, 150, 243, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.noOptionsBadge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #2196f3, #1c7ed6);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  align-self: flex-start;
+}
+
+.noOptionsInfo p {
+  margin: 0;
+  font-size: 14px;
+  color: #1d3b5a;
+}
+
 .secondaryButton {
   display: inline-flex;
   align-items: center;

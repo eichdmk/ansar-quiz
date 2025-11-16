@@ -69,6 +69,7 @@ function GameQuestions() {
   const [isUploading, setIsUploading] = useState(false)
   const [editingQuestionId, setEditingQuestionId] = useState(null)
   const [localError, setLocalError] = useState(null)
+  const [isQuestionWithoutOptions, setIsQuestionWithoutOptions] = useState(false)
   const importInputRef = useRef(null)
   const [isImporting, setIsImporting] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -86,6 +87,7 @@ function GameQuestions() {
     setLocalError(null)
     setIsUploading(false)
     setEditingQuestionId(null)
+    setIsQuestionWithoutOptions(false)
   }
 
   const handleAddAnswer = () => {
@@ -118,6 +120,12 @@ function GameQuestions() {
     if (!trimmedText) {
       return 'Введите текст вопроса'
     }
+    
+    // Если это вопрос без вариантов ответа, валидация не требуется
+    if (isQuestionWithoutOptions) {
+      return null
+    }
+    
     const preparedAnswers = answers
       .map((item) => ({
         id: item.id ?? null,
@@ -126,7 +134,7 @@ function GameQuestions() {
       }))
       .filter((item) => item.text.length > 0)
     if (preparedAnswers.length < 2) {
-      return 'Добавьте как минимум два варианта ответа'
+      return 'Добавьте как минимум два варианта ответа или выберите "Вопрос без вариантов ответа"'
     }
     if (!preparedAnswers.some((item) => item.isTrue)) {
       return 'Отметьте правильный ответ'
@@ -143,13 +151,16 @@ function GameQuestions() {
     }
     setLocalError(null)
 
-    const preparedAnswers = answers
-      .map((item) => ({
-        id: item.id ?? null,
-        text: item.text.trim(),
-        isTrue: item.isTrue,
-      }))
-      .filter((item) => item.text.length > 0)
+    // Для вопросов без вариантов отправляем пустой массив
+    const preparedAnswers = isQuestionWithoutOptions
+      ? []
+      : answers
+          .map((item) => ({
+            id: item.id ?? null,
+            text: item.text.trim(),
+            isTrue: item.isTrue,
+          }))
+          .filter((item) => item.text.length > 0)
 
     const payload = {
       gameId: Number(gameId),
@@ -302,7 +313,15 @@ function GameQuestions() {
       text: answer.text ?? '',
       isTrue: Boolean(answer.isTrue),
     }))
-    if (normalizedAnswers.length >= 2) {
+    
+    // Определяем, является ли вопрос вопросом без вариантов
+    const hasNoOptions = normalizedAnswers.length === 0
+    setIsQuestionWithoutOptions(hasNoOptions)
+    
+    if (hasNoOptions) {
+      // Для вопроса без вариантов оставляем пустой массив или минимальный
+      setAnswers(createDefaultAnswers())
+    } else if (normalizedAnswers.length >= 2) {
       setAnswers(normalizedAnswers)
     } else {
       const filled = [...normalizedAnswers, ...createDefaultAnswers()]
@@ -372,12 +391,40 @@ function GameQuestions() {
           <div className={styles.answersBlock}>
             <div className={styles.answersHeader}>
               <span>Варианты ответов</span>
-              <button type="button" className={styles.textButton} onClick={handleAddAnswer}>
-                Добавить ответ
-              </button>
+              {!isQuestionWithoutOptions && (
+                <button type="button" className={styles.textButton} onClick={handleAddAnswer}>
+                  Добавить ответ
+                </button>
+              )}
             </div>
 
-            <div className={styles.answersList}>
+            <label className={styles.checkboxField}>
+              <input
+                type="checkbox"
+                checked={isQuestionWithoutOptions}
+                onChange={(e) => {
+                  const checked = e.target.checked
+                  setIsQuestionWithoutOptions(checked)
+                  if (checked) {
+                    // При включении чекбокса очищаем ответы
+                    setAnswers(createDefaultAnswers())
+                  } else {
+                    // При выключении чекбокса убеждаемся, что есть минимум 2 варианта
+                    setAnswers((prev) => {
+                      const nonEmpty = prev.filter((item) => item.text.trim().length > 0)
+                      if (nonEmpty.length < 2) {
+                        return createDefaultAnswers()
+                      }
+                      return prev
+                    })
+                  }
+                }}
+              />
+              <span>Вопрос без вариантов ответа (устный ответ, оценка администратором)</span>
+            </label>
+
+            {!isQuestionWithoutOptions && (
+              <div className={styles.answersList}>
               {answers.map((answer, index) => (
                 <div key={answer.id ?? index} className={styles.answerRow}>
                   <input
@@ -406,7 +453,15 @@ function GameQuestions() {
                   )}
                 </div>
               ))}
-            </div>
+              </div>
+            )}
+            
+            {isQuestionWithoutOptions && (
+              <div className={styles.infoBox}>
+                <p>Этот вопрос будет отображаться игрокам без вариантов ответа.</p>
+                <p>Игроки будут отвечать устно, а вы сможете оценить их ответы в панели управления игрой.</p>
+              </div>
+            )}
           </div>
 
           <div className={styles.uploadBlock}>
@@ -491,16 +546,23 @@ function GameQuestions() {
                   </div>
                 </div>
 
-                <ul className={styles.answers}>
-                  {(question.answers ?? []).map((answer) => (
-                    <li
-                      key={answer.id}
-                      className={answer.isTrue ? `${styles.answer} ${styles.correct}` : styles.answer}
-                    >
-                      {answer.text}
-                    </li>
-                  ))}
-                </ul>
+                {(question.answers ?? []).length === 0 ? (
+                  <div className={styles.noOptionsInfo}>
+                    <span className={styles.noOptionsBadge}>Вопрос без вариантов ответа</span>
+                    <p>Игроки будут отвечать устно, оценка администратором</p>
+                  </div>
+                ) : (
+                  <ul className={styles.answers}>
+                    {(question.answers ?? []).map((answer) => (
+                      <li
+                        key={answer.id}
+                        className={answer.isTrue ? `${styles.answer} ${styles.correct}` : styles.answer}
+                      >
+                        {answer.text}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </article>
             ))}
           </div>

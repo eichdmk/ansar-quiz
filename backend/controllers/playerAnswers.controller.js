@@ -20,15 +20,13 @@ export async function submitAnswer(request, reply) {
   const { playerId, questionId, answerId } = request.body ?? {}
   const preparedPlayerId = toNumber(playerId)
   const preparedQuestionId = toNumber(questionId)
-  const preparedAnswerId = toNumber(answerId)
-  if (
-    preparedPlayerId === null ||
-    preparedQuestionId === null ||
-    preparedAnswerId === null
-  ) {
+  const preparedAnswerId = answerId !== null && answerId !== undefined ? toNumber(answerId) : null
+  
+  if (preparedPlayerId === null || preparedQuestionId === null) {
     reply.code(400).send({ message: 'Некорректные данные' })
     return
   }
+  
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -81,20 +79,49 @@ export async function submitAnswer(request, reply) {
       return
     }
 
-    const answerResult = await client.query(
-      'SELECT id, question_id, is_true FROM answers WHERE id = $1',
-      [preparedAnswerId],
+    // Проверяем, есть ли у вопроса варианты ответа
+    const answersCountResult = await client.query(
+      'SELECT COUNT(*)::int AS count FROM answers WHERE question_id = $1',
+      [preparedQuestionId],
     )
-    if (answerResult.rowCount === 0) {
-      await client.query('ROLLBACK')
-      reply.code(404).send({ message: 'Ответ не найден' })
-      return
-    }
-    const answer = answerResult.rows[0]
-    if (answer.question_id !== question.id) {
-      await client.query('ROLLBACK')
-      reply.code(400).send({ message: 'Ответ не относится к вопросу' })
-      return
+    const answersCount = answersCountResult.rows[0]?.count ?? 0
+    const hasAnswerOptions = answersCount > 0
+
+    let isCorrect = null
+    let answer = null
+
+    if (hasAnswerOptions) {
+      // Вопрос с вариантами ответа - требуется answerId
+      if (preparedAnswerId === null) {
+        await client.query('ROLLBACK')
+        reply.code(400).send({ message: 'Для вопроса с вариантами ответа требуется указать answerId' })
+        return
+      }
+      
+      const answerResult = await client.query(
+        'SELECT id, question_id, is_true FROM answers WHERE id = $1',
+        [preparedAnswerId],
+      )
+      if (answerResult.rowCount === 0) {
+        await client.query('ROLLBACK')
+        reply.code(404).send({ message: 'Ответ не найден' })
+        return
+      }
+      answer = answerResult.rows[0]
+      if (answer.question_id !== question.id) {
+        await client.query('ROLLBACK')
+        reply.code(400).send({ message: 'Ответ не относится к вопросу' })
+        return
+      }
+      isCorrect = Boolean(answer.is_true)
+    } else {
+      // Вопрос без вариантов ответа - answerId не требуется, is_correct будет установлен администратором
+      if (preparedAnswerId !== null) {
+        await client.query('ROLLBACK')
+        reply.code(400).send({ message: 'Для вопроса без вариантов ответа не требуется answerId' })
+        return
+      }
+      // isCorrect остается null - будет установлен администратором через evaluateAnswer
     }
 
     const currentIndex = Math.max(0, (question.position ?? 1) - 1)
@@ -103,8 +130,6 @@ export async function submitAnswer(request, reply) {
       reply.code(409).send({ message: 'Вопрос уже завершён' })
       return
     }
-
-    const isCorrect = Boolean(answer.is_true)
 
     // Проверяем, что игрок в очереди и активен (имеет право отвечать)
     // Проверяем что игрок первый в очереди (position = 0)
@@ -151,7 +176,13 @@ export async function submitAnswer(request, reply) {
     let awarded = false
     let updatedPlayer = null
 
-    if (isCorrect) {
+    // Для вопросов без вариантов (isCorrect === null) администратор оценит ответ позже через evaluateAnswer
+    // Здесь только создаем запись и оставляем игрока в очереди
+    if (isCorrect === null) {
+      // Вопрос без вариантов - ждем оценки администратора
+      // Игрок остается в очереди, администратор увидит его и оценит ответ
+    } else if (isCorrect) {
+      // Правильный ответ на вопрос с вариантами
       const playerScoreResult = await client.query(
         `UPDATE players
          SET score = score + 1
@@ -175,7 +206,7 @@ export async function submitAnswer(request, reply) {
         [player.game_id, preparedQuestionId],
       )
     } else {
-      // Неправильный ответ - деактивируем текущего игрока и передаем следующему
+      // Неправильный ответ на вопрос с вариантами - деактивируем текущего игрока и передаем следующему
       await client.query(
         'UPDATE answer_queue SET is_active = FALSE WHERE id = $1',
         [queueCheckResult.rows[0].id],
@@ -185,10 +216,12 @@ export async function submitAnswer(request, reply) {
     await client.query('COMMIT')
 
     // Инвалидация кэша
-    const { invalidateQueueCache, invalidatePlayerCache } = await import('../services/cache.service.js')
+    const { invalidateQueueCache, invalidatePlayerCache, invalidateGameCache } = await import('../services/cache.service.js')
     await invalidateQueueCache(player.game_id, preparedQuestionId)
     if (awarded) {
       await invalidatePlayerCache(player.game_id)
+      // Инвалидируем кэш игры (обновлен is_question_closed)
+      await invalidateGameCache(player.game_id)
     }
 
     if (request.server?.io) {
@@ -198,8 +231,14 @@ export async function submitAnswer(request, reply) {
         answerId: preparedAnswerId,
         isCorrect,
         gameId: player.game_id,
+        waitingForEvaluation: isCorrect === null,
       })
-      if (awarded && updatedPlayer) {
+      
+      if (isCorrect === null) {
+        // Вопрос без вариантов - обновляем очередь, чтобы администратор увидел игрока
+        await emitQueueUpdate(request.server.io, player.game_id, preparedQuestionId)
+      } else if (awarded && updatedPlayer) {
+        // Правильный ответ на вопрос с вариантами
         request.server.io.emit('player:scoreUpdated', mapPlayer(updatedPlayer))
         request.server.io.emit('game:questionClosed', {
           gameId: player.game_id,
@@ -209,7 +248,7 @@ export async function submitAnswer(request, reply) {
         // Очищаем очередь при правильном ответе
         await emitQueueUpdate(request.server.io, player.game_id, preparedQuestionId)
       } else if (!isCorrect) {
-        // Неправильный ответ - передаем следующему
+        // Неправильный ответ на вопрос с вариантами - передаем следующему
         await assignQuestionToNextInQueue(request.server.io, player.game_id, preparedQuestionId)
       }
     }
@@ -223,6 +262,7 @@ export async function submitAnswer(request, reply) {
       awarded,
       answeredAt: insertResult.rows[0].answered_at,
       questionClosed: awarded && isCorrect,
+      waitingForEvaluation: isCorrect === null,
     })
   } catch (error) {
     await client.query('ROLLBACK')
@@ -314,9 +354,11 @@ async function getQueueForQuestion(gameId, questionId, client = pool) {
   const target = client.query ? client : pool
   const result = await target.query(
     `SELECT aq.id, aq.player_id, aq.position, aq.joined_at,
-            p.username, p.group_name, p.score
+            p.username, p.group_name, p.score,
+            pa.is_correct
      FROM answer_queue aq
      JOIN players p ON aq.player_id = p.id
+     LEFT JOIN player_answers pa ON pa.player_id = aq.player_id AND pa.question_id = aq.question_id
      WHERE aq.game_id = $1 AND aq.question_id = $2 AND aq.is_active = TRUE
      ORDER BY aq.position ASC, aq.joined_at ASC`,
     [gameId, questionId],
@@ -329,6 +371,8 @@ async function getQueueForQuestion(gameId, questionId, client = pool) {
     username: row.username,
     groupName: row.group_name,
     score: row.score,
+    isCorrect: row.is_correct !== null ? Boolean(row.is_correct) : null,
+    waitingForEvaluation: row.is_correct === null,
   }))
 
   // Сохраняем в кэш только если это не транзакция
@@ -394,16 +438,25 @@ async function assignQuestionToNextInQueue(io, gameId, questionId) {
             answers: answers,
           },
         })
-
-        // Обновляем очередь
-        await emitQueueUpdate(io, gameId, questionId, client)
       }
     }
 
     await client.query('COMMIT')
+    client.release()
+
+    // Всегда обновляем очередь через socket, даже если следующего игрока нет
+    await emitQueueUpdate(io, gameId, questionId)
   } catch (error) {
     await client.query('ROLLBACK')
     console.error('Error assigning question to next in queue:', error)
+    // Отправляем ошибку через socket для уведомления админа
+    if (io) {
+      io.emit('admin:error', {
+        gameId,
+        message: 'Ошибка при передаче вопроса следующему игроку',
+        error: error.message,
+      })
+    }
   } finally {
     client.release()
   }
@@ -686,6 +739,206 @@ export async function skipQuestion(request, reply) {
     }
 
     reply.send({ message: 'Вопрос пропущен' })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    request.log.error(error)
+    reply.code(500).send({ message: 'Ошибка сервера' })
+  } finally {
+    client.release()
+  }
+}
+
+export async function evaluateAnswer(request, reply) {
+  const { playerId, questionId, isCorrect } = request.body ?? {}
+  const preparedPlayerId = toNumber(playerId)
+  const preparedQuestionId = toNumber(questionId)
+  
+  if (preparedPlayerId === null || preparedQuestionId === null || typeof isCorrect !== 'boolean') {
+    reply.code(400).send({ message: 'Некорректные данные' })
+    return
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Проверяем игрока
+    const playerResult = await client.query(
+      'SELECT id, game_id FROM players WHERE id = $1',
+      [preparedPlayerId],
+    )
+    if (playerResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(404).send({ message: 'Игрок не найден' })
+      return
+    }
+    const player = playerResult.rows[0]
+
+    // Проверяем игру
+    const gameResult = await client.query(
+      'SELECT id, status, is_question_closed FROM games WHERE id = $1 FOR UPDATE',
+      [player.game_id],
+    )
+    if (gameResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(404).send({ message: 'Игра не найдена' })
+      return
+    }
+    const game = gameResult.rows[0]
+    if (game.status !== 'running') {
+      await client.query('ROLLBACK')
+      reply.code(409).send({ message: 'Игра не запущена' })
+      return
+    }
+
+    // Проверяем, что вопрос не закрыт
+    if (game.is_question_closed) {
+      await client.query('ROLLBACK')
+      reply.code(409).send({ message: 'Вопрос уже закрыт' })
+      return
+    }
+
+    // Проверяем, что игрок в очереди, активен и является первым в очереди
+    // Объединяем проверку в один запрос для оптимизации
+    const queueCheckResult = await client.query(
+      `SELECT aq.id, aq.position,
+         (SELECT aq2.player_id 
+          FROM answer_queue aq2
+          WHERE aq2.game_id = $1 AND aq2.question_id = $2 AND aq2.is_active = TRUE
+          ORDER BY aq2.position ASC, aq2.joined_at ASC
+          LIMIT 1) as first_player_id
+       FROM answer_queue aq
+       WHERE aq.game_id = $1 AND aq.question_id = $2 AND aq.player_id = $3 AND aq.is_active = TRUE
+       LIMIT 1`,
+      [player.game_id, preparedQuestionId, preparedPlayerId],
+    )
+
+    if (queueCheckResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(409).send({ message: 'Игрок не в очереди или уже не активен' })
+      return
+    }
+
+    const queueData = queueCheckResult.rows[0]
+    if (queueData.first_player_id !== preparedPlayerId) {
+      await client.query('ROLLBACK')
+      reply.code(409).send({ message: 'Вы можете оценить только ответ первого игрока в очереди' })
+      return
+    }
+
+    // Проверяем, есть ли запись об ответе игрока, если нет - создаем
+    const answerResult = await client.query(
+      'SELECT id, is_correct FROM player_answers WHERE player_id = $1 AND question_id = $2',
+      [preparedPlayerId, preparedQuestionId],
+    )
+    
+    let answerId
+    if (answerResult.rowCount === 0) {
+      // Создаем запись об ответе для вопроса без вариантов
+      const insertResult = await client.query(
+        `INSERT INTO player_answers (player_id, question_id, answer_id, is_correct)
+         VALUES ($1, $2, NULL, NULL)
+         RETURNING id`,
+        [preparedPlayerId, preparedQuestionId],
+      )
+      answerId = insertResult.rows[0].id
+    } else {
+      const existingAnswer = answerResult.rows[0]
+      
+      // Проверяем, что ответ еще не был оценен (is_correct должен быть NULL)
+      if (existingAnswer.is_correct !== null) {
+        await client.query('ROLLBACK')
+        reply.code(409).send({ message: 'Ответ уже был оценен' })
+        return
+      }
+      answerId = existingAnswer.id
+    }
+
+    // Обновляем оценку ответа
+    await client.query(
+      'UPDATE player_answers SET is_correct = $1 WHERE id = $2',
+      [isCorrect, answerId],
+    )
+
+    let awarded = false
+    let updatedPlayer = null
+
+    if (isCorrect) {
+      // Правильный ответ - начисляем балл и закрываем вопрос
+      const playerScoreResult = await client.query(
+        `UPDATE players
+         SET score = score + 1
+         WHERE id = $1
+         RETURNING id, username, group_name, game_id, score, joined_at`,
+        [preparedPlayerId],
+      )
+      updatedPlayer = playerScoreResult.rows[0]
+      awarded = true
+
+      await client.query(
+        `UPDATE games
+           SET is_question_closed = TRUE
+         WHERE id = $1`,
+        [player.game_id],
+      )
+
+      // Деактивируем всех в очереди
+      await client.query(
+        'UPDATE answer_queue SET is_active = FALSE WHERE game_id = $1 AND question_id = $2',
+        [player.game_id, preparedQuestionId],
+      )
+    } else {
+      // Неправильный ответ - деактивируем текущего игрока
+      await client.query(
+        'UPDATE answer_queue SET is_active = FALSE WHERE id = $1',
+        [queueData.id],
+      )
+    }
+
+    await client.query('COMMIT')
+
+    // Инвалидация кэша
+    const { invalidateQueueCache, invalidatePlayerCache, invalidateGameCache } = await import('../services/cache.service.js')
+    await invalidateQueueCache(player.game_id, preparedQuestionId)
+    if (awarded) {
+      await invalidatePlayerCache(player.game_id)
+      // Инвалидируем кэш игры (обновлен is_question_closed)
+      await invalidateGameCache(player.game_id)
+    }
+
+    // Отправляем socket события
+    if (request.server?.io) {
+      request.server.io.emit('player:answerEvaluated', {
+        playerId: preparedPlayerId,
+        questionId: preparedQuestionId,
+        isCorrect,
+        gameId: player.game_id,
+      })
+
+      if (awarded && updatedPlayer) {
+        request.server.io.emit('player:scoreUpdated', mapPlayer(updatedPlayer))
+        request.server.io.emit('game:questionClosed', {
+          gameId: player.game_id,
+          questionId: preparedQuestionId,
+          winner: mapPlayer(updatedPlayer),
+        })
+        await emitQueueUpdate(request.server.io, player.game_id, preparedQuestionId)
+      } else if (!isCorrect) {
+        // Неправильный ответ - передаем следующему
+        await assignQuestionToNextInQueue(request.server.io, player.game_id, preparedQuestionId)
+      } else {
+        // Обновляем очередь в любом случае
+        await emitQueueUpdate(request.server.io, player.game_id, preparedQuestionId)
+      }
+    }
+
+    reply.send({
+      playerId: preparedPlayerId,
+      questionId: preparedQuestionId,
+      isCorrect,
+      awarded,
+      questionClosed: awarded && isCorrect,
+    })
   } catch (error) {
     await client.query('ROLLBACK')
     request.log.error(error)

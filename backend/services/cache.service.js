@@ -145,7 +145,7 @@ export async function invalidateGameCache(gameId) {
     delPattern(`players:${gameId}:*`),
     delPattern(`questions:${gameId}:*`),
     delPattern(`queue:${gameId}:*`),
-    del('games:list:*'),
+    delPattern('games:list:*'),
   ])
 }
 

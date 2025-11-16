@@ -30,3 +30,12 @@ export const getQueue = async (gameId, questionId = null) => {
   const response = await http.get('/player-answers/queue', { params })
   return response.data
 }
+
+export const evaluateAnswer = async ({ playerId, questionId, isCorrect }) => {
+  const response = await http.post('/player-answers/evaluate', {
+    playerId,
+    questionId,
+    isCorrect,
+  })
+  return response.data
+}

@@ -87,31 +87,28 @@ export async function getQuizzes(request, reply) {
     }
 
     const offset = (page - 1) * limit
-    const cacheKey = `games:list:${page}:${limit}`
 
     try {
-        const { cached, get } = await import('../services/cache.service.js')
-        
-        const result = await cached(cacheKey, async () => {
-            const [itemsResult, totalResult] = await Promise.all([
-                pool.query(
-                    `SELECT id, name, created_at, status, current_question_index,
-                            question_duration, started_at, finished_at, is_question_closed
-                       FROM games
-                      ORDER BY created_at DESC
-                      LIMIT $1 OFFSET $2`,
-                    [limit, offset]
-                ),
-                pool.query('SELECT COUNT(*)::int AS total FROM games'),
-            ])
+        // Кэширование убрано, так как данные часто меняются во время игры
+        // (status, current_question_index, is_question_closed)
+        const [itemsResult, totalResult] = await Promise.all([
+            pool.query(
+                `SELECT id, name, created_at, status, current_question_index,
+                        question_duration, started_at, finished_at, is_question_closed
+                   FROM games
+                  ORDER BY created_at DESC
+                  LIMIT $1 OFFSET $2`,
+                [limit, offset]
+            ),
+            pool.query('SELECT COUNT(*)::int AS total FROM games'),
+        ])
 
-            return {
-                items: itemsResult.rows,
-                total: totalResult.rows[0]?.total ?? 0,
-                page,
-                limit,
-            }
-        }, 60) // Кэш на 60 секунд
+        const result = {
+            items: itemsResult.rows,
+            total: totalResult.rows[0]?.total ?? 0,
+            page,
+            limit,
+        }
 
         reply.send(result)
     } catch (error) {
@@ -469,9 +466,10 @@ export async function restartQuiz(request, reply) {
 
         clearCountdown(gameId)
 
-        // Инвалидация кэша игры
-        const { invalidateGameCache } = await import('../services/cache.service.js')
+        // Инвалидация кэша игры и игроков (score обновлен)
+        const { invalidateGameCache, invalidatePlayerCache } = await import('../services/cache.service.js')
         await invalidateGameCache(gameId)
+        await invalidatePlayerCache(gameId)
 
         const io = request.server.io
         const game = updateGame.rows[0]

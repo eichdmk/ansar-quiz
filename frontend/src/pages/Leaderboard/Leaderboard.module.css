@@ -79,11 +79,11 @@
   min-width: 72px;
   height: 40px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #ffd54f, #ffc107);
+  /* background: linear-gradient(135deg, #ffd54f, #ffc107); */
   color: #3b2a00;
   font-weight: 800;
-  box-shadow: 0 10px 20px rgba(255, 193, 7, 0.28), inset 0 -2px 0 rgba(0,0,0,0.08);
-  border: 1px solid rgba(255, 193, 7, 0.45);
+  /* box-shadow: 0 10px 20px rgba(255, 193, 7, 0.28), inset 0 -2px 0 rgba(0,0,0,0.08);
+  border: 1px solid rgba(255, 193, 7, 0.45); */
 }
 
 .progressNumber {

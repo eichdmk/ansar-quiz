@@ -447,6 +447,32 @@ function PlayerPlay() {
       }
     }
 
+    const handleAnswerEvaluated = (payload) => {
+      if (payload.gameId !== player.gameId || payload.playerId !== player.id) {
+        return
+      }
+      
+      if (payload.isCorrect) {
+        // Правильный ответ
+        setStatusMessage('Правильно! Балл начислен.')
+        setQuestionClosed(true)
+        setCurrentQuestion(null)
+        setSelectedAnswer(null)
+        setHasQuestion(false)
+        setAttemptLocked(true)
+      } else {
+        // Неправильный ответ
+        setStatusMessage('Ответ неверный. Вопрос передан следующему в очереди.')
+        setQuestionClosed(true)
+        setCurrentQuestion(null)
+        setSelectedAnswer(null)
+        setHasQuestion(false)
+        setInQueue(false)
+        setQueuePosition(null)
+        setAttemptLocked(true)
+      }
+    }
+
     socket.on('game:questionOpened', handleQuestionOpened)
     socket.on('game:finished', handleGameFinished)
     socket.on('game:questionClosed', handleQuestionClosed)
@@ -457,6 +483,7 @@ function PlayerPlay() {
     socket.on('player:questionAssigned', handleQuestionAssigned)
     socket.on('player:skipped', handleSkipped)
     socket.on('player:queueUpdated', handleQueueUpdated)
+    socket.on('player:answerEvaluated', handleAnswerEvaluated)
     socket.on('game:closed', handleGameClosed)
     if (!socket.connected) {
       socket.connect()
@@ -473,6 +500,7 @@ function PlayerPlay() {
       socket.off('player:questionAssigned', handleQuestionAssigned)
       socket.off('player:skipped', handleSkipped)
       socket.off('player:queueUpdated', handleQueueUpdated)
+      socket.off('player:answerEvaluated', handleAnswerEvaluated)
       socket.off('game:closed', handleGameClosed)
     }
   }, [socket, player, applyQuestion, completeGame, inQueue])
@@ -543,21 +571,32 @@ function PlayerPlay() {
   }
 
   const handleSubmit = async () => {
-    if (!player || !currentQuestion || selectedAnswer === null || attemptLocked || !hasQuestion) {
+    if (!player || !currentQuestion || attemptLocked || !hasQuestion) {
       return
     }
+    
+    // Проверяем, есть ли варианты ответа
+    const hasAnswerOptions = (currentQuestion.answers ?? []).length > 0
+    
+    // Для вопросов с вариантами требуется selectedAnswer
+    if (hasAnswerOptions && selectedAnswer === null) {
+      return
+    }
+    
     setSending(true)
     try {
       const response = await submitAnswer({
         playerId: player.id,
         questionId: currentQuestion.id,
-        answerId: selectedAnswer,
+        answerId: hasAnswerOptions ? selectedAnswer : undefined,
       })
       setAttemptLocked(true)
       setHasQuestion(false)
+      
       if (response.questionClosed) {
         setQuestionClosed(true)
       }
+      
       if (response.gameFinished) {
         completeGame(
           response.awarded
@@ -703,42 +742,72 @@ function PlayerPlay() {
                 <img src={resolveImageUrl(currentQuestion.imageUrl)} alt="Изображение вопроса" />
               </div>
             )}
-            <div className={styles.answers}>
-              {(currentQuestion.answers ?? []).map((answer) => (
-                <button
-                  key={answer.id}
-                  type="button"
-                  className={`${styles.answerButton} ${selectedAnswer === answer.id ? styles.answerSelected : ''
-                    }`}
-                  onClick={() => handleSelectAnswer(answer.id)}
-                  disabled={sending || questionClosed || attemptLocked}
-                >
-                  <span>{answer.text}</span>
-
-                </button>
-              ))}
-            </div>
-            <div className={styles.actionsRow}>
-              <button
-                type="button"
-                className={styles.submitButton}
-                onClick={handleSubmit}
-                disabled={
-                  selectedAnswer === null || sending || questionClosed || attemptLocked
-                }
-              >
-                {sending ? 'Отправляем...' : 'Ответить'}
-              </button>
-              <button
-                type="button"
-                className={styles.secondaryButton}
-                onClick={handleSkip}
-                disabled={sending || questionClosed || attemptLocked}
-              >
-                Пропустить
-              </button>
-            </div>
-            {questionClosed && (
+            {(() => {
+              const hasAnswerOptions = (currentQuestion.answers ?? []).length > 0
+              
+              if (!hasAnswerOptions) {
+                // Вопрос без вариантов ответа - устный ответ
+                return (
+                  <>
+                    <div className={styles.stateBox}>
+                      <p>Этот вопрос требует устного ответа.</p>
+                      <p>Ответьте устно ведущему. Администратор оценит ваш ответ.</p>
+                    </div>
+                    <div className={styles.actionsRow}>
+                      <button
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={handleSkip}
+                        disabled={sending || questionClosed || attemptLocked}
+                      >
+                        Пропустить
+                      </button>
+                    </div>
+                  </>
+                )
+              }
+              
+              // Вопрос с вариантами ответа
+              return (
+                <>
+                  <div className={styles.answers}>
+                    {(currentQuestion.answers ?? []).map((answer) => (
+                      <button
+                        key={answer.id}
+                        type="button"
+                        className={`${styles.answerButton} ${selectedAnswer === answer.id ? styles.answerSelected : ''
+                          }`}
+                        onClick={() => handleSelectAnswer(answer.id)}
+                        disabled={sending || questionClosed || attemptLocked}
+                      >
+                        <span>{answer.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className={styles.actionsRow}>
+                    <button
+                      type="button"
+                      className={styles.submitButton}
+                      onClick={handleSubmit}
+                      disabled={
+                        selectedAnswer === null || sending || questionClosed || attemptLocked
+                      }
+                    >
+                      {sending ? 'Отправляем...' : 'Ответить'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={handleSkip}
+                      disabled={sending || questionClosed || attemptLocked}
+                    >
+                      Пропустить
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
+            {questionClosed && !statusMessage.includes('неверный') && !statusMessage.includes('Правильно') && (
               <div className={styles.stateBox}>Ждём следующий вопрос от ведущего</div>
             )}
           </div>

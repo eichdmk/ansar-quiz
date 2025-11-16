@@ -221,13 +221,20 @@ export async function updateQuestion(request, reply) {
   }
 
   const normalizedAnswers = normalizeAnswersForUpdate(answers)
-  if (normalizedAnswers.length < 2) {
-    reply.code(400).send({ message: 'Нужно минимум два варианта ответа' })
-    return
-  }
-  if (!normalizedAnswers.some((item) => item.isTrue)) {
-    reply.code(400).send({ message: 'Отметьте правильный ответ' })
-    return
+  
+  // Разрешаем вопросы без вариантов ответа (пустой массив)
+  if (normalizedAnswers.length === 0) {
+    // Вопрос без вариантов - это допустимо
+  } else {
+    // Для вопросов с вариантами требуется минимум 2 варианта и один правильный
+    if (normalizedAnswers.length < 2) {
+      reply.code(400).send({ message: 'Нужно минимум два варианта ответа' })
+      return
+    }
+    if (!normalizedAnswers.some((item) => item.isTrue)) {
+      reply.code(400).send({ message: 'Отметьте правильный ответ' })
+      return
+    }
   }
 
   const client = await pool.connect()
@@ -334,11 +341,18 @@ function prepareImportedQuestions(raw) {
     }
     const imageUrl = typeof item.imageUrl === 'string' && item.imageUrl.trim().length > 0 ? item.imageUrl.trim() : null
     const answers = sanitizeAnswers(item.answers)
-    if (answers.length < 2) {
-      throw new Error(`Вопрос "${text}": добавьте минимум два варианта ответа`)
-    }
-    if (!answers.some((answer) => answer.isTrue)) {
-      throw new Error(`Вопрос "${text}": отметьте правильный ответ`)
+    
+    // Разрешаем вопросы без вариантов ответа (пустой массив)
+    if (answers.length === 0) {
+      // Вопрос без вариантов - это допустимо
+    } else {
+      // Для вопросов с вариантами требуется минимум 2 варианта и один правильный
+      if (answers.length < 2) {
+        throw new Error(`Вопрос "${text}": добавьте минимум два варианта ответа или оставьте массив пустым для вопроса без вариантов`)
+      }
+      if (!answers.some((answer) => answer.isTrue)) {
+        throw new Error(`Вопрос "${text}": отметьте правильный ответ`)
+      }
     }
     return {
       text,

@@ -20,6 +20,7 @@ import {
 import { fetchPlayers } from '../../api/players.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
 import { startQuestion } from '../../api/games.js'
+import { getQueue, evaluateAnswer } from '../../api/playerAnswers.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './Dashboard.module.css'
 
@@ -57,6 +58,7 @@ function Dashboard() {
   const [pendingGameId, setPendingGameId] = useState(null)
   const [answerStats, setAnswerStats] = useState({})
   const [currentQuestions, setCurrentQuestions] = useState({}) // gameId -> question preview
+  const [queues, setQueues] = useState({}) // gameId -> { queue: [], questionId: number }
   const trackedGameIdsRef = useRef(new Set())
   const isMountedRef = useRef(true)
 
@@ -93,6 +95,47 @@ function Dashboard() {
       // пропускаем ошибки загрузки статистики игроков
     }
   }, [])
+
+  const refreshQueue = useCallback(async (gameId) => {
+    const normalizedId = Number(gameId)
+    if (!normalizedId || Number.isNaN(normalizedId)) {
+      return
+    }
+    try {
+      const data = await getQueue(normalizedId)
+      if (!isMountedRef.current) {
+        return
+      }
+      setQueues((prev) => ({
+        ...prev,
+        [normalizedId]: {
+          queue: data.queue || [],
+          questionId: data.questionId || null,
+        },
+      }))
+    } catch {
+      // пропускаем ошибки загрузки очереди
+    }
+  }, [])
+
+  const handleEvaluateAnswer = useCallback(async (gameId, playerId, questionId, isCorrect) => {
+    // Предотвращаем множественные клики - кнопки уже disabled через pendingGameId
+    setPendingGameId(gameId)
+    try {
+      await evaluateAnswer({ playerId, questionId, isCorrect })
+      // Очередь обновится автоматически через socket событие player:queueUpdated
+      // Не вызываем refreshQueue чтобы избежать дублирования
+    } catch (error) {
+      setLocalError(error?.response?.data?.message ?? error?.message ?? 'Не удалось оценить ответ')
+      // При ошибке обновляем очередь вручную, так как socket событие может не прийти
+      await refreshQueue(gameId)
+    } finally {
+      // Добавляем небольшую задержку перед сбросом состояния для предотвращения race conditions
+      setTimeout(() => {
+        setPendingGameId(null)
+      }, 300)
+    }
+  }, [refreshQueue])
 
   const resetAnswers = useCallback((gameId) => {
     const normalizedId = Number(gameId)
@@ -158,14 +201,26 @@ function Dashboard() {
     })
     activeGames.forEach((game) => {
       refreshPlayers(game.id)
+      if (game.status === 'running') {
+        refreshQueue(game.id)
+      }
     })
-  }, [games, refreshPlayers])
+  }, [games, refreshPlayers, refreshQueue])
 
   useEffect(() => {
     if (loadStatus === 'idle') {
       dispatch(loadGames())
     }
   }, [dispatch, loadStatus])
+
+  // Загружаем очередь для запущенных игр
+  useEffect(() => {
+    games.forEach((game) => {
+      if (game.status === 'running') {
+        refreshQueue(game.id)
+      }
+    })
+  }, [games, refreshQueue])
 
   useEffect(() => {
     if (!socket) {
@@ -215,12 +270,15 @@ function Dashboard() {
         return
       }
       resetAnswers(gameId)
-      // Очищаем preview если вопрос открыт (старый формат)
-      setCurrentQuestions((prev) => {
-        const next = { ...prev }
-        delete next[gameId]
-        return next
-      })
+      // Сохраняем текущий вопрос при открытии
+      if (payload.question) {
+        setCurrentQuestions((prev) => ({
+          ...prev,
+          [gameId]: payload.question,
+        }))
+      }
+      // Обновляем очередь при открытии вопроса
+      refreshQueue(gameId)
     }
 
     const handleGameStarted = (payload) => {
@@ -277,6 +335,20 @@ function Dashboard() {
       dispatch(updateGame({ id: gameId, is_question_closed: false }))
     }
 
+    const handleQueueUpdated = (payload) => {
+      const gameId = Number(payload?.gameId)
+      if (!gameId) {
+        return
+      }
+      setQueues((prev) => ({
+        ...prev,
+        [gameId]: {
+          queue: payload.queue || [],
+          questionId: payload.questionId || prev[gameId]?.questionId || null,
+        },
+      }))
+    }
+
     socket.on('player:answer', handlePlayerAnswer)
     socket.on('player:joined', handlePlayerJoined)
     socket.on('player:left', handlePlayerLeft)
@@ -288,6 +360,7 @@ function Dashboard() {
     socket.on('game:finished', handleGameFinished)
     socket.on('game:stopped', handleGameFinished)
     socket.on('game:closed', handleGameFinished)
+    socket.on('player:queueUpdated', handleQueueUpdated)
 
     return () => {
       socket.off('player:answer', handlePlayerAnswer)
@@ -301,8 +374,9 @@ function Dashboard() {
       socket.off('game:finished', handleGameFinished)
       socket.off('game:stopped', handleGameFinished)
       socket.off('game:closed', handleGameFinished)
+      socket.off('player:queueUpdated', handleQueueUpdated)
     }
-  }, [socket, refreshPlayers, resetAnswers, clearStatsForGame])
+  }, [socket, refreshPlayers, resetAnswers, clearStatsForGame, refreshQueue])
 
   const handleCreate = (event) => {
     event.preventDefault()
@@ -557,6 +631,101 @@ function Dashboard() {
                         </div>
                       </div>
                     )}
+                    {game.status === 'running' && (() => {
+                      const queueData = queues[Number(game.id)]
+                      const queue = queueData?.queue || []
+                      const questionId = queueData?.questionId || currentQuestion?.id
+                      
+                      // Определяем, есть ли у вопроса варианты ответа
+                      // 1. Из currentQuestion (если есть) - самый надежный способ
+                      // 2. По наличию игроков с waitingForEvaluation в очереди
+                      let hasAnswerOptions = true
+                      if (currentQuestion) {
+                        hasAnswerOptions = (currentQuestion.answers ?? []).length > 0
+                      } else if (queue.length > 0) {
+                        // Если currentQuestion нет, но есть очередь, используем эвристику:
+                        // Для вопросов без вариантов игроки должны иметь waitingForEvaluation === true
+                        // или isCorrect === null (еще не оценены администратором)
+                        const hasPlayersWaitingForEvaluation = queue.some(
+                          (item) => item.waitingForEvaluation === true || (item.isCorrect === null || item.isCorrect === undefined)
+                        )
+                        // Если есть игроки, ожидающие оценки администратором, это скорее всего вопрос без вариантов
+                        if (hasPlayersWaitingForEvaluation) {
+                          hasAnswerOptions = false
+                        }
+                      }
+                      
+                      // Для вопросов без вариантов показываем кнопки для первого игрока в очереди
+                      if (!hasAnswerOptions && queue.length > 0 && questionId) {
+                        // Первый игрок в очереди (position = 0 или первый в массиве) - это тот, кто сейчас отвечает
+                        const currentPlayer = queue[0]
+                        const needsEvaluation = currentPlayer && (currentPlayer.isCorrect === null || currentPlayer.isCorrect === undefined)
+                        
+                        if (needsEvaluation) {
+                          return (
+                            <div className={styles.answerStats}>
+                              <span className={styles.answerStatsTitle}>Оценка ответа</span>
+                              <div className={styles.queueList}>
+                                <div className={styles.queueItem}>
+                                  <span className={styles.queuePlayerName}>{currentPlayer.username}</span>
+                                  {currentPlayer.groupName && (
+                                    <span className={styles.queueGroupName}>({currentPlayer.groupName})</span>
+                                  )}
+                                  <div className={styles.queueActions}>
+                                    <button
+                                      type="button"
+                                      className={styles.successButton}
+                                      onClick={() => handleEvaluateAnswer(game.id, currentPlayer.playerId, questionId, true)}
+                                      disabled={pendingGameId === game.id}
+                                    >
+                                      ✓ Правильно
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={styles.warningButton}
+                                      onClick={() => handleEvaluateAnswer(game.id, currentPlayer.playerId, questionId, false)}
+                                      disabled={pendingGameId === game.id}
+                                    >
+                                      ✗ Неправильно
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        }
+                      }
+                      
+                      // Для вопросов с вариантами или если вопрос не в эфире, показываем обычную очередь
+                      if (queue.length > 0) {
+                        return (
+                          <div className={styles.answerStats}>
+                            <span className={styles.answerStatsTitle}>Очередь ответов ({queue.length})</span>
+                            <div className={styles.queueList}>
+                              {queue.map((item, idx) => (
+                                <div key={item.playerId} className={styles.queueItem}>
+                                  <span className={styles.queuePosition}>{idx + 1}.</span>
+                                  <span className={styles.queuePlayerName}>{item.username}</span>
+                                  {item.groupName && (
+                                    <span className={styles.queueGroupName}>({item.groupName})</span>
+                                  )}
+                                  {item.waitingForEvaluation && (
+                                    <span className={styles.queueStatus}>Ожидает оценки</span>
+                                  )}
+                                  {item.isCorrect === true && (
+                                    <span className={styles.queueStatusCorrect}>✓ Правильно</span>
+                                  )}
+                                  {item.isCorrect === false && (
+                                    <span className={styles.queueStatusWrong}>✗ Неправильно</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </div>
                   <div className={styles.cardActions}>
                     <button
