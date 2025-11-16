@@ -21,6 +21,7 @@ import { fetchPlayers } from '../../api/players.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
 import { startQuestion } from '../../api/games.js'
 import { getQueue, evaluateAnswer } from '../../api/playerAnswers.js'
+import { fetchQuestions } from '../../api/questions.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './Dashboard.module.css'
 
@@ -106,17 +107,34 @@ function Dashboard() {
       if (!isMountedRef.current) {
         return
       }
+      const questionId = data.questionId || null
       setQueues((prev) => ({
         ...prev,
         [normalizedId]: {
           queue: data.queue || [],
-          questionId: data.questionId || null,
+          questionId,
         },
       }))
+      
+      // Если есть questionId, но нет currentQuestion, загружаем информацию о вопросе
+      if (questionId && !currentQuestions[normalizedId]) {
+        try {
+          const questionsData = await fetchQuestions(normalizedId)
+          const question = questionsData?.items?.find((q) => q.id === questionId)
+          if (question && isMountedRef.current) {
+            setCurrentQuestions((prev) => ({
+              ...prev,
+              [normalizedId]: question,
+            }))
+          }
+        } catch {
+          // Пропускаем ошибки загрузки вопроса
+        }
+      }
     } catch {
       // пропускаем ошибки загрузки очереди
     }
-  }, [])
+  }, [currentQuestions])
 
   const handleEvaluateAnswer = useCallback(async (gameId, playerId, questionId, isCorrect) => {
     // Предотвращаем множественные клики - кнопки уже disabled через pendingGameId
@@ -325,12 +343,7 @@ function Dashboard() {
       if (!gameId) {
         return
       }
-      // Очищаем preview когда вопрос готов
-      setCurrentQuestions((prev) => {
-        const next = { ...prev }
-        delete next[gameId]
-        return next
-      })
+      // НЕ удаляем currentQuestion - он нужен для определения типа вопроса
       // Обновляем состояние игры - вопрос больше не в preview
       dispatch(updateGame({ id: gameId, is_question_closed: false }))
     }
@@ -637,25 +650,46 @@ function Dashboard() {
                       const questionId = queueData?.questionId || currentQuestion?.id
                       
                       // Определяем тип вопроса по полю questionType
-                      // Важно: проверяем, что currentQuestion.id совпадает с questionId
                       const isValidQuestionId = questionId != null && !Number.isNaN(Number(questionId))
-                      const isVerbalQuestion = currentQuestion && 
-                                                isValidQuestionId && 
-                                                currentQuestion.id === Number(questionId) &&
-                                                currentQuestion.questionType === 'verbal'
+                      
+                      // Проверяем, является ли вопрос устным
+                      // Приоритет: используем currentQuestion.questionType, если он есть
+                      // Fallback: если есть игроки, ожидающие оценки - это устный вопрос
+                      let isVerbalQuestion = false
+                      
+                      if (currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId)) {
+                        // Если currentQuestion есть и совпадает с questionId, используем его тип
+                        isVerbalQuestion = currentQuestion.questionType === 'verbal'
+                      } else if (isValidQuestionId && queue.length > 0) {
+                        // Если currentQuestion нет или не совпадает, проверяем очередь
+                        // Если есть игроки, ожидающие оценки - это устный вопрос
+                        // (для вопросов с вариантами ответ определяется автоматически при submitAnswer)
+                        const hasPlayersWaitingForEvaluation = queue.some(
+                          (item) => item.waitingForEvaluation === true || (item.isCorrect === null || item.isCorrect === undefined)
+                        )
+                        if (hasPlayersWaitingForEvaluation) {
+                          isVerbalQuestion = true
+                        }
+                      }
                       
                       // Для устных вопросов показываем кнопки для первого игрока в очереди
                       // Показываем панельку ТОЛЬКО если:
-                      // 1. Это устный вопрос (questionType === 'verbal')
-                      // 2. currentQuestion есть и совпадает с questionId
-                      // 3. Есть очередь и questionId валиден
-                      // 4. Вопрос открыт (не в preview)
-                      if (isVerbalQuestion && currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId) && queue.length > 0) {
+                      // 1. Это устный вопрос (questionType === 'verbal' или есть игроки, ожидающие оценки)
+                      // 2. Есть очередь и questionId валиден
+                      // 3. Вопрос открыт (не в preview)
+                      // 4. Первый игрок в очереди еще не оценен
+                      if (isVerbalQuestion && isValidQuestionId && queue.length > 0) {
                         // Первый игрок в очереди (position = 0 или первый в массиве) - это тот, кто сейчас отвечает
                         const currentPlayer = queue[0]
-                        const needsEvaluation = currentPlayer && (currentPlayer.isCorrect === null || currentPlayer.isCorrect === undefined)
+                        // Для устных вопросов показываем панельку, если игрок еще не оценен
+                        // (isCorrect === null/undefined или waitingForEvaluation === true)
+                        const needsEvaluation = currentPlayer && 
+                          (currentPlayer.isCorrect === null || 
+                           currentPlayer.isCorrect === undefined || 
+                           currentPlayer.waitingForEvaluation === true)
                         
-                        if (needsEvaluation) {
+                        // Показываем панельку оценки для первого игрока в очереди
+                        if (needsEvaluation && currentPlayer && currentPlayer.playerId) {
                           return (
                             <div className={styles.answerStats}>
                               <span className={styles.answerStatsTitle}>Оценка ответа</span>
