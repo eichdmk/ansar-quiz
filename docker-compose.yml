@@ -10,17 +10,17 @@ services:
     command:
       - "postgres"
       - "-c"
-      - "max_connections=200"
+      - "max_connections=50"
       - "-c"
-      - "shared_buffers=512MB"
+      - "shared_buffers=128MB"
       - "-c"
-      - "effective_cache_size=2GB"
+      - "effective_cache_size=512MB"
       - "-c"
-      - "maintenance_work_mem=128MB"
+      - "maintenance_work_mem=32MB"
       - "-c"
       - "checkpoint_completion_target=0.9"
       - "-c"
-      - "wal_buffers=16MB"
+      - "wal_buffers=4MB"
       - "-c"
       - "default_statistics_target=100"
       - "-c"
@@ -28,11 +28,11 @@ services:
       - "-c"
       - "effective_io_concurrency=200"
       - "-c"
-      - "work_mem=8MB"
+      - "work_mem=2MB"
       - "-c"
-      - "min_wal_size=1GB"
+      - "min_wal_size=256MB"
       - "-c"
-      - "max_wal_size=4GB"
+      - "max_wal_size=1GB"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -43,16 +43,16 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3G
+          memory: 400M
           cpus: '0.4'
         reservations:
-          memory: 512M
+          memory: 256M
           cpus: '0.1'
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save 60 1000
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --save 60 1000
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -61,10 +61,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 128M
           cpus: '0.2'
         reservations:
-          memory: 128M
+          memory: 64M
           cpus: '0.05'
 
   backend:
@@ -80,7 +80,7 @@ services:
       NODE_ENV: production
       DB_MAX_RETRIES: 30
       DB_RETRY_DELAY_MS: 2000
-      NODE_OPTIONS: "--max-old-space-size=1024"
+      NODE_OPTIONS: "--max-old-space-size=256"
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:
@@ -99,10 +99,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 300M
           cpus: '0.6'
         reservations:
-          memory: 256M
+          memory: 128M
           cpus: '0.2'
 
   web:
@@ -133,10 +133,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 64M
           cpus: '0.1'
         reservations:
-          memory: 64M
+          memory: 32M
           cpus: '0.05'
 
   certbot:
