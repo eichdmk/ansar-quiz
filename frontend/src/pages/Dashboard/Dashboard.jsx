@@ -653,30 +653,25 @@ function Dashboard() {
                       const isValidQuestionId = questionId != null && !Number.isNaN(Number(questionId))
                       
                       // Проверяем, является ли вопрос устным
-                      // Приоритет 1: используем currentQuestion.questionType, если он есть
-                      // Приоритет 2: если есть игроки с waitingForEvaluation === true - это устный вопрос
-                      // (для вопросов с вариантами ответ определяется автоматически при submitAnswer)
+                      // Используем только questionType из currentQuestion
+                      // Fallback: если questionType отсутствует, проверяем наличие вариантов ответа
                       let isVerbalQuestion = false
                       
                       if (currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId)) {
                         // Если currentQuestion есть и совпадает с questionId, используем его тип
-                        isVerbalQuestion = currentQuestion.questionType === 'verbal'
-                      }
-                      
-                      // Если еще не определили, проверяем очередь
-                      // Если есть игроки с waitingForEvaluation === true - это точно устный вопрос
-                      if (!isVerbalQuestion && isValidQuestionId && queue.length > 0) {
-                        const hasPlayersWaitingForEvaluation = queue.some(
-                          (item) => item.waitingForEvaluation === true
-                        )
-                        if (hasPlayersWaitingForEvaluation) {
+                        if (currentQuestion.questionType === 'verbal') {
                           isVerbalQuestion = true
+                        } else if (currentQuestion.questionType === 'multiple_choice') {
+                          isVerbalQuestion = false
+                        } else {
+                          // Fallback: если questionType отсутствует, проверяем наличие вариантов ответа
+                          isVerbalQuestion = !currentQuestion.answers || currentQuestion.answers.length === 0
                         }
                       }
                       
                       // Для устных вопросов показываем кнопки для первого игрока в очереди
                       // Показываем панельку ТОЛЬКО если:
-                      // 1. Это устный вопрос (questionType === 'verbal' или есть игроки с waitingForEvaluation)
+                      // 1. Это устный вопрос (questionType === 'verbal')
                       // 2. Есть очередь и questionId валиден
                       // 3. Вопрос открыт (не в preview)
                       // 4. Первый игрок в очереди еще не оценен

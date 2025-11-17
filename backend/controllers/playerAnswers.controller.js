@@ -433,7 +433,7 @@ async function assignQuestionToNextInQueue(io, gameId, questionId) {
       
       // Отправляем вопрос следующему игроку
       const questionResult = await client.query(
-        `SELECT q.id, q.question_text AS text, q.image_url,
+        `SELECT q.id, q.question_text AS text, q.image_url, q.question_type,
                 COALESCE(
                   json_agg(
                     json_build_object('id', a.id, 'text', a.answer_text)
@@ -460,6 +460,7 @@ async function assignQuestionToNextInQueue(io, gameId, questionId) {
             id: question.id,
             text: question.text,
             imageUrl: question.image_url,
+            questionType: question.question_type || 'multiple_choice',
             answers: answers,
           },
         })
@@ -577,7 +578,7 @@ export async function requestAnswer(request, reply) {
 
     // Получаем текущий вопрос
     const questionResult = await client.query(
-      `SELECT q.id, q.question_text AS text, q.image_url,
+      `SELECT q.id, q.question_text AS text, q.image_url, q.question_type,
               COALESCE(
                 json_agg(
                   json_build_object('id', a.id, 'text', a.answer_text)
@@ -647,6 +648,7 @@ export async function requestAnswer(request, reply) {
             id: question.id,
             text: question.text,
             imageUrl: question.image_url,
+            questionType: question.question_type || 'multiple_choice',
             answers: answers,
           },
         })
@@ -660,6 +662,7 @@ export async function requestAnswer(request, reply) {
           id: question.id,
           text: question.text,
           imageUrl: question.image_url,
+          questionType: question.question_type || 'multiple_choice',
           answers: answers,
         },
       })
