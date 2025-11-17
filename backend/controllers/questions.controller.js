@@ -408,22 +408,27 @@ export async function importQuestions(request, reply) {
     const insertedQuestions = []
     for (let index = 0; index < preparedQuestions.length; index += 1) {
       const current = preparedQuestions[index]
+      // Определяем тип вопроса: если есть questionType в импорте, используем его, иначе определяем по наличию ответов
+      const questionType = current.questionType || (current.answers && current.answers.length > 0 ? 'multiple_choice' : 'verbal')
       const questionResult = await client.query(
-        'INSERT INTO questions (question_text, game_id, image_url, position) VALUES ($1, $2, $3, $4) RETURNING id, question_text, image_url, created_at, position',
-        [current.text, preparedGameId, current.imageUrl, index + 1],
+        'INSERT INTO questions (question_text, game_id, image_url, position, question_type) VALUES ($1, $2, $3, $4, $5) RETURNING id, question_text, image_url, created_at, position, question_type',
+        [current.text, preparedGameId, current.imageUrl, index + 1, questionType],
       )
       const questionRow = questionResult.rows[0]
       const createdAnswers = []
-      for (const answer of current.answers) {
-        const answerResult = await client.query(
-          'INSERT INTO answers (question_id, answer_text, is_true) VALUES ($1, $2, $3) RETURNING id, answer_text, is_true',
-          [questionRow.id, answer.text, answer.isTrue],
-        )
-        createdAnswers.push({
-          id: answerResult.rows[0].id,
-          text: answerResult.rows[0].answer_text,
-          isTrue: answerResult.rows[0].is_true,
-        })
+      // Создаем ответы только если они есть (для устных вопросов answers может быть пустым)
+      if (current.answers && current.answers.length > 0) {
+        for (const answer of current.answers) {
+          const answerResult = await client.query(
+            'INSERT INTO answers (question_id, answer_text, is_true) VALUES ($1, $2, $3) RETURNING id, answer_text, is_true',
+            [questionRow.id, answer.text, answer.isTrue],
+          )
+          createdAnswers.push({
+            id: answerResult.rows[0].id,
+            text: answerResult.rows[0].answer_text,
+            isTrue: answerResult.rows[0].is_true,
+          })
+        }
       }
       insertedQuestions.push({
         id: questionRow.id,
@@ -431,6 +436,7 @@ export async function importQuestions(request, reply) {
         imageUrl: questionRow.image_url,
         createdAt: questionRow.created_at,
         position: questionRow.position,
+        questionType: questionRow.question_type,
         answers: createdAnswers,
       })
     }
@@ -472,7 +478,7 @@ export async function exportQuestions(request, reply) {
     }
 
     const questionsResult = await pool.query(
-      'SELECT id, question_text, image_url, created_at, position FROM questions WHERE game_id = $1 ORDER BY position ASC, created_at ASC',
+      'SELECT id, question_text, image_url, created_at, position, question_type FROM questions WHERE game_id = $1 ORDER BY position ASC, created_at ASC',
       [preparedGameId],
     )
     const questionIds = questionsResult.rows.map((item) => item.id)
@@ -501,6 +507,7 @@ export async function exportQuestions(request, reply) {
       imageUrl: question.image_url,
       createdAt: question.created_at,
       position: question.position,
+      questionType: question.question_type || (answersMap.get(question.id)?.length === 0 ? 'verbal' : 'multiple_choice'),
       answers: answersMap.get(question.id) ?? [],
     }))
 
