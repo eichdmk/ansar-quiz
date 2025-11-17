@@ -25,7 +25,7 @@ const app = Fastify({
   logger: {
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
   },
-  bodyLimit: 10 * 1024 * 1024, // 10MB
+  bodyLimit: 15 * 1024 * 1024, // 15MB
   requestTimeout: 30000, // 30 seconds
   keepAliveTimeout: 72000, // 72 seconds
 })
@@ -69,9 +69,10 @@ app.addHook('onReady', async function () {
     },
     transports: ['websocket', 'polling'],
     allowEIO3: true,
-    pingTimeout: 60000,
+    pingTimeout: 120000,
     pingInterval: 25000,
-    maxHttpBufferSize: 1e6,
+    maxHttpBufferSize: 2e6,
+    perMessageDeflate: true,
     allowRequest: (req, callback) => {
       // Можно добавить проверку origin для безопасности
       callback(null, true)

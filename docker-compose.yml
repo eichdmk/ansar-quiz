@@ -14,11 +14,11 @@ services:
       - "-c"
       - "max_connections=200"
       - "-c"
-      - "shared_buffers=256MB"
+      - "shared_buffers=512MB"
       - "-c"
-      - "effective_cache_size=1GB"
+      - "effective_cache_size=2GB"
       - "-c"
-      - "maintenance_work_mem=64MB"
+      - "maintenance_work_mem=128MB"
       - "-c"
       - "checkpoint_completion_target=0.9"
       - "-c"
@@ -30,7 +30,7 @@ services:
       - "-c"
       - "effective_io_concurrency=200"
       - "-c"
-      - "work_mem=4MB"
+      - "work_mem=8MB"
       - "-c"
       - "min_wal_size=1GB"
       - "-c"
@@ -45,14 +45,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 3G
         reservations:
           memory: 512M
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save 60 1000
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -61,7 +61,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
         reservations:
           memory: 128M
 
@@ -78,7 +78,7 @@ services:
       NODE_ENV: production
       DB_MAX_RETRIES: 30
       DB_RETRY_DELAY_MS: 2000
-      NODE_OPTIONS: "--max-old-space-size=512"
+      NODE_OPTIONS: "--max-old-space-size=1024"
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:
@@ -97,8 +97,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
-          cpus: '1.0'
+          memory: 2G
+          cpus: '1.5'
         reservations:
           memory: 256M
           cpus: '0.25'
