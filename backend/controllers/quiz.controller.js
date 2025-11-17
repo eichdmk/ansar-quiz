@@ -518,7 +518,9 @@ export async function startQuiz(request, reply) {
         return
     }
 
-    const duration = Number(questionDuration) || 0
+    // Используем значение по умолчанию 30, если questionDuration не передан или <= 0
+    // CHECK constraint требует question_duration > 0
+    const duration = Number(questionDuration) > 0 ? Number(questionDuration) : 30
 
     const client = await pool.connect()
     try {

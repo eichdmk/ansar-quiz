@@ -116,6 +116,11 @@ export async function updatePlayerScore(request, reply) {
     reply.code(400).send({ message: 'Некорректные данные' })
     return
   }
+  // CHECK constraint требует score >= 0
+  if (preparedScore < 0) {
+    reply.code(400).send({ message: 'Счет не может быть отрицательным' })
+    return
+  }
   try {
     const result = await pool.query(
       'UPDATE players SET score = $1 WHERE id = $2 RETURNING id, username, group_name, game_id, score, joined_at',

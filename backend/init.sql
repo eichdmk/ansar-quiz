@@ -226,3 +226,7 @@ WHERE question_type = 'multiple_choice'
 UPDATE questions 
 SET question_type = 'multiple_choice' 
 WHERE question_type IS NULL;
+
+-- Делаем колонку NOT NULL после заполнения данных (для безопасности)
+ALTER TABLE questions 
+ALTER COLUMN question_type SET NOT NULL;
