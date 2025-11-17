@@ -653,19 +653,21 @@ function Dashboard() {
                       const isValidQuestionId = questionId != null && !Number.isNaN(Number(questionId))
                       
                       // Проверяем, является ли вопрос устным
-                      // Приоритет: используем currentQuestion.questionType, если он есть
-                      // Fallback: если есть игроки, ожидающие оценки - это устный вопрос
+                      // Приоритет 1: используем currentQuestion.questionType, если он есть
+                      // Приоритет 2: если есть игроки с waitingForEvaluation === true - это устный вопрос
+                      // (для вопросов с вариантами ответ определяется автоматически при submitAnswer)
                       let isVerbalQuestion = false
                       
                       if (currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId)) {
                         // Если currentQuestion есть и совпадает с questionId, используем его тип
                         isVerbalQuestion = currentQuestion.questionType === 'verbal'
-                      } else if (isValidQuestionId && queue.length > 0) {
-                        // Если currentQuestion нет или не совпадает, проверяем очередь
-                        // Если есть игроки, ожидающие оценки - это устный вопрос
-                        // (для вопросов с вариантами ответ определяется автоматически при submitAnswer)
+                      }
+                      
+                      // Если еще не определили, проверяем очередь
+                      // Если есть игроки с waitingForEvaluation === true - это точно устный вопрос
+                      if (!isVerbalQuestion && isValidQuestionId && queue.length > 0) {
                         const hasPlayersWaitingForEvaluation = queue.some(
-                          (item) => item.waitingForEvaluation === true || (item.isCorrect === null || item.isCorrect === undefined)
+                          (item) => item.waitingForEvaluation === true
                         )
                         if (hasPlayersWaitingForEvaluation) {
                           isVerbalQuestion = true
@@ -674,7 +676,7 @@ function Dashboard() {
                       
                       // Для устных вопросов показываем кнопки для первого игрока в очереди
                       // Показываем панельку ТОЛЬКО если:
-                      // 1. Это устный вопрос (questionType === 'verbal' или есть игроки, ожидающие оценки)
+                      // 1. Это устный вопрос (questionType === 'verbal' или есть игроки с waitingForEvaluation)
                       // 2. Есть очередь и questionId валиден
                       // 3. Вопрос открыт (не в preview)
                       // 4. Первый игрок в очереди еще не оценен
@@ -725,7 +727,34 @@ function Dashboard() {
                       }
                       
                       // Для вопросов с вариантами или если вопрос не в эфире, показываем обычную очередь
-                      if (queue.length > 0) {
+                      // НО только если это НЕ устный вопрос (чтобы не дублировать панельку оценки)
+                      if (!isVerbalQuestion && queue.length > 0) {
+                        return (
+                          <div className={styles.answerStats}>
+                            <span className={styles.answerStatsTitle}>Очередь ответов ({queue.length})</span>
+                            <div className={styles.queueList}>
+                              {queue.map((item, idx) => (
+                                <div key={item.playerId} className={styles.queueItem}>
+                                  <span className={styles.queuePosition}>{idx + 1}.</span>
+                                  <span className={styles.queuePlayerName}>{item.username}</span>
+                                  {item.groupName && (
+                                    <span className={styles.queueGroupName}>({item.groupName})</span>
+                                  )}
+                                  {item.isCorrect === true && (
+                                    <span className={styles.queueStatusCorrect}>✓ Правильно</span>
+                                  )}
+                                  {item.isCorrect === false && (
+                                    <span className={styles.queueStatusWrong}>✗ Неправильно</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      }
+                      
+                      // Если устный вопрос, но панелька оценки не показана (все игроки оценены или нет игроков)
+                      if (isVerbalQuestion && queue.length > 0) {
                         return (
                           <div className={styles.answerStats}>
                             <span className={styles.answerStatsTitle}>Очередь ответов ({queue.length})</span>

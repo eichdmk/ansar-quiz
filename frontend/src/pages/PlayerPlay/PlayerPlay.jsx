@@ -575,8 +575,10 @@ function PlayerPlay() {
       return
     }
     
-    // Проверяем тип вопроса
-    const isVerbalQuestion = currentQuestion.questionType === 'verbal'
+    // Проверяем тип вопроса: по questionType или по отсутствию вариантов ответа
+    const isVerbalQuestion = currentQuestion.questionType === 'verbal' || 
+                             (currentQuestion.questionType !== 'multiple_choice' && 
+                              (!currentQuestion.answers || currentQuestion.answers.length === 0))
     
     // Для вопросов с вариантами требуется selectedAnswer
     if (!isVerbalQuestion && selectedAnswer === null) {
@@ -743,7 +745,10 @@ function PlayerPlay() {
               </div>
             )}
             {(() => {
-              const isVerbalQuestion = currentQuestion.questionType === 'verbal'
+              // Определяем устный вопрос: по questionType или по отсутствию вариантов ответа
+              const isVerbalQuestion = currentQuestion.questionType === 'verbal' || 
+                                       (currentQuestion.questionType !== 'multiple_choice' && 
+                                        (!currentQuestion.answers || currentQuestion.answers.length === 0))
               
               if (isVerbalQuestion) {
                 // Устный вопрос - требует устного ответа

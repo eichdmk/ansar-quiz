@@ -258,41 +258,47 @@ export async function updateQuestion(request, reply) {
       return
     }
 
-    const existingAnswersResult = await client.query(
-      'SELECT id FROM answers WHERE question_id = $1',
-      [questionId],
-    )
-    const existingIds = new Set(existingAnswersResult.rows.map((row) => row.id))
-    const incomingIds = new Set(
-      normalizedAnswers.filter((item) => item.id).map((item) => item.id),
-    )
-
-    const toDelete = [...existingIds].filter((id) => !incomingIds.has(id))
-    if (toDelete.length > 0) {
-      await client.query(
-        'DELETE FROM answers WHERE question_id = $1 AND id = ANY($2::int[])',
-        [questionId, toDelete],
+    // Если вопрос становится устным (без вариантов), удаляем все существующие ответы
+    if (normalizedAnswers.length === 0) {
+      await client.query('DELETE FROM answers WHERE question_id = $1', [questionId])
+    } else {
+      // Для вопросов с вариантами обновляем ответы
+      const existingAnswersResult = await client.query(
+        'SELECT id FROM answers WHERE question_id = $1',
+        [questionId],
       )
-    }
+      const existingIds = new Set(existingAnswersResult.rows.map((row) => row.id))
+      const incomingIds = new Set(
+        normalizedAnswers.filter((item) => item.id).map((item) => item.id),
+      )
 
-    for (const answer of normalizedAnswers) {
-      if (answer.id) {
-        const updateResult = await client.query(
-          'UPDATE answers SET answer_text = $1, is_true = $2 WHERE id = $3 AND question_id = $4',
-          [answer.text, answer.isTrue, answer.id, questionId],
-        )
-        if (updateResult.rowCount === 0) {
-          await client.query('ROLLBACK')
-          reply
-            .code(400)
-            .send({ message: 'Ответ не найден или не принадлежит вопросу' })
-          return
-        }
-      } else {
+      const toDelete = [...existingIds].filter((id) => !incomingIds.has(id))
+      if (toDelete.length > 0) {
         await client.query(
-          'INSERT INTO answers (question_id, answer_text, is_true) VALUES ($1, $2, $3)',
-          [questionId, answer.text, answer.isTrue],
+          'DELETE FROM answers WHERE question_id = $1 AND id = ANY($2::int[])',
+          [questionId, toDelete],
         )
+      }
+
+      for (const answer of normalizedAnswers) {
+        if (answer.id) {
+          const updateResult = await client.query(
+            'UPDATE answers SET answer_text = $1, is_true = $2 WHERE id = $3 AND question_id = $4',
+            [answer.text, answer.isTrue, answer.id, questionId],
+          )
+          if (updateResult.rowCount === 0) {
+            await client.query('ROLLBACK')
+            reply
+              .code(400)
+              .send({ message: 'Ответ не найден или не принадлежит вопросу' })
+            return
+          }
+        } else {
+          await client.query(
+            'INSERT INTO answers (question_id, answer_text, is_true) VALUES ($1, $2, $3)',
+            [questionId, answer.text, answer.isTrue],
+          )
+        }
       }
     }
 
