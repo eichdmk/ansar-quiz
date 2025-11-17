@@ -12,11 +12,39 @@ EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;
 
--- 2. Вспомогательная функция для автоматического обновления updated_at
+-- 2. Вспомогательные функции для триггеров
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматической синхронизации evaluated_at с is_correct
+CREATE OR REPLACE FUNCTION sync_evaluated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Для INSERT: если is_correct не NULL, устанавливаем evaluated_at
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.is_correct IS NOT NULL THEN
+            NEW.evaluated_at = NOW();
+        END IF;
+        RETURN NEW;
+    END IF;
+    
+    -- Для UPDATE: синхронизируем evaluated_at с изменениями is_correct
+    -- Если is_correct меняется с NULL на не-NULL, устанавливаем evaluated_at
+    IF OLD.is_correct IS NULL AND NEW.is_correct IS NOT NULL THEN
+        NEW.evaluated_at = NOW();
+    -- Если is_correct снова становится NULL, сбрасываем evaluated_at
+    ELSIF OLD.is_correct IS NOT NULL AND NEW.is_correct IS NULL THEN
+        NEW.evaluated_at = NULL;
+    -- Если is_correct меняется между TRUE/FALSE, обновляем evaluated_at
+    ELSIF OLD.is_correct IS NOT NULL AND NEW.is_correct IS NOT NULL AND OLD.is_correct != NEW.is_correct THEN
+        NEW.evaluated_at = NOW();
+    END IF;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -154,6 +182,11 @@ COMMENT ON COLUMN verbal_question_responses.is_correct IS 'NULL = ожидает
 CREATE TRIGGER set_updated_at_verbal
     BEFORE UPDATE ON verbal_question_responses
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Триггер для автоматической синхронизации evaluated_at с is_correct
+CREATE TRIGGER sync_evaluated_at_verbal
+    BEFORE INSERT OR UPDATE ON verbal_question_responses
+    FOR EACH ROW EXECUTE FUNCTION sync_evaluated_at();
 
 CREATE INDEX IF NOT EXISTS idx_verbal_responses_question ON verbal_question_responses(question_id);
 CREATE INDEX IF NOT EXISTS idx_verbal_responses_player ON verbal_question_responses(player_id);
