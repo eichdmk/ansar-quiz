@@ -780,7 +780,7 @@ function PlayerPlay() {
                         Этот вопрос требует <strong>устного ответа</strong>.
                       </p>
                       <p className={styles.verbalQuestionInstruction}>
-                        Ответьте устно ведущему. Администратор оценит ваш ответ и нажмет кнопку "Правильно" или "Неправильно".
+                        Ответьте устно ведущему. Администратор оценит ваш ответ.
                       </p>
                     </div>
                     <div className={styles.actionsRow}>
