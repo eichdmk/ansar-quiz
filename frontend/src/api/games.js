@@ -42,8 +42,9 @@ export const stopGame = async (id) => {
   return response.data
 }
 
-export const fetchCurrentQuestion = async (gameId) => {
-  const response = await http.get(`/game-state/${gameId}/current-question`)
+export const fetchCurrentQuestion = async (gameId, playerId = null) => {
+  const params = playerId ? { playerId } : {}
+  const response = await http.get(`/game-state/${gameId}/current-question`, { params })
   return response.data
 }
 

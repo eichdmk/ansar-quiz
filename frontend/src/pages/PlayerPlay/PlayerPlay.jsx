@@ -131,8 +131,39 @@ function PlayerPlay() {
       return
     }
     setLoading(true)
-    fetchCurrentQuestion(player.gameId)
+    fetchCurrentQuestion(player.gameId, player.id)
       .then((data) => {
+        // Восстанавливаем состояние очереди, если оно есть
+        if (data.playerQueueStatus) {
+          const queueStatus = data.playerQueueStatus
+          setInQueue(queueStatus.inQueue)
+          setHasQuestion(queueStatus.hasQuestion)
+          setQueuePosition(queueStatus.position)
+          
+          // Если игрок имеет вопрос (первый в очереди), загружаем вопрос
+          if (queueStatus.hasQuestion && data.status === 'running' && data.question) {
+            setQuestionReady(false)
+            setHasQuestion(true)
+            setInQueue(false)
+            setQueuePosition(null)
+            applyQuestion({
+              question: data.question,
+              index: data.index,
+              total: data.total,
+              isClosed: data.isClosed,
+            })
+            return
+          }
+          
+          // Если игрок в очереди, но не имеет вопроса
+          if (queueStatus.inQueue && !queueStatus.hasQuestion) {
+            setQuestionReady(false)
+            setStatusMessage(`Вы в очереди, позиция: ${queueStatus.position}`)
+            setLoading(false)
+            return
+          }
+        }
+        
         if (data.status === 'running' && data.question) {
           applyQuestion({
             question: data.question,
@@ -152,6 +183,9 @@ function PlayerPlay() {
           setQuestionClosed(true)
           setAttemptLocked(true)
           setCountdownValue(null)
+          setInQueue(false)
+          setHasQuestion(false)
+          setQueuePosition(null)
         } else if (data.status === 'draft') {
           setLoading(false)
           setCurrentQuestion(null)
@@ -161,6 +195,9 @@ function PlayerPlay() {
           setQuestionClosed(true)
           setAttemptLocked(true)
           setCountdownValue(null)
+          setInQueue(false)
+          setHasQuestion(false)
+          setQueuePosition(null)
         } else {
           setLoading(false)
           setCurrentQuestion(null)
@@ -170,6 +207,9 @@ function PlayerPlay() {
           setQuestionClosed(Boolean(data?.isClosed))
           setAttemptLocked(Boolean(data?.isClosed))
           setCountdownValue(null)
+          setInQueue(false)
+          setHasQuestion(false)
+          setQueuePosition(null)
         }
       })
       .catch((err) => {

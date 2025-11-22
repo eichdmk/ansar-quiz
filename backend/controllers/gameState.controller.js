@@ -6,8 +6,14 @@ export async function getCurrentGameQuestion(request, reply) {
     reply.code(400).send({ message: 'Некорректный идентификатор игры' })
     return
   }
+  
+  // Получаем playerId из query параметров (опционально)
+  const playerId = request.query?.playerId 
+    ? Number(request.query.playerId) 
+    : null
+  
   try {
-    const data = await getCurrentQuestion(gameId)
+    const data = await getCurrentQuestion(gameId, undefined, playerId)
     if (data.status === 'not_found') {
       reply.code(404).send({ message: 'Игра не найдена' })
       return

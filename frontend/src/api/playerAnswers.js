@@ -39,3 +39,11 @@ export const evaluateAnswer = async ({ playerId, questionId, isCorrect }) => {
   })
   return response.data
 }
+
+export const skipPlayerByAdmin = async ({ playerId, questionId }) => {
+  const response = await http.post('/player-answers/skip-player', {
+    playerId,
+    questionId,
+  })
+  return response.data
+}

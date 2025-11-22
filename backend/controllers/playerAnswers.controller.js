@@ -1053,3 +1053,94 @@ export async function getQueue(request, reply) {
   }
 }
 
+export async function skipPlayerByAdmin(request, reply) {
+  const { playerId, questionId } = request.body ?? {}
+  const preparedPlayerId = toNumber(playerId)
+  const preparedQuestionId = toNumber(questionId)
+
+  if (preparedPlayerId === null || preparedQuestionId === null) {
+    reply.code(400).send({ message: 'Некорректные данные' })
+    return
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // Проверяем игрока
+    const playerResult = await client.query(
+      'SELECT id, game_id FROM players WHERE id = $1',
+      [preparedPlayerId],
+    )
+    if (playerResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(404).send({ message: 'Игрок не найден' })
+      return
+    }
+    const player = playerResult.rows[0]
+
+    // Проверяем игру
+    const gameResult = await client.query(
+      'SELECT id, status, is_question_closed FROM games WHERE id = $1 FOR UPDATE',
+      [player.game_id],
+    )
+    if (gameResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(404).send({ message: 'Игра не найдена' })
+      return
+    }
+    const game = gameResult.rows[0]
+    if (game.status !== 'running') {
+      await client.query('ROLLBACK')
+      reply.code(409).send({ message: 'Игра не запущена' })
+      return
+    }
+
+    // Проверяем, что игрок в очереди и активен
+    const queueResult = await client.query(
+      `SELECT aq.id, aq.position 
+       FROM answer_queue aq
+       WHERE aq.game_id = $1 AND aq.question_id = $2 AND aq.player_id = $3 AND aq.is_active = TRUE`,
+      [player.game_id, preparedQuestionId, preparedPlayerId],
+    )
+
+    if (queueResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(404).send({ message: 'Игрок не в очереди или уже не активен' })
+      return
+    }
+
+    // Деактивируем игрока в очереди
+    await client.query(
+      'UPDATE answer_queue SET is_active = FALSE WHERE id = $1',
+      [queueResult.rows[0].id],
+    )
+
+    await client.query('COMMIT')
+
+    // Инвалидация кэша очереди
+    const { invalidateQueueCache } = await import('../services/cache.service.js')
+    await invalidateQueueCache(player.game_id, preparedQuestionId)
+
+    if (request.server?.io) {
+      request.server.io.emit('player:skipped', {
+        gameId: player.game_id,
+        questionId: preparedQuestionId,
+        playerId: preparedPlayerId,
+        skippedByAdmin: true,
+      })
+
+      // Передаем вопрос следующему в очереди
+      await assignQuestionToNextInQueue(request.server.io, player.game_id, preparedQuestionId)
+    }
+
+    reply.send({ message: 'Ход игрока пропущен администратором' })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    request.log.error(error)
+    reply.code(500).send({ message: 'Ошибка сервера' })
+  } finally {
+    client.release()
+  }
+}
+

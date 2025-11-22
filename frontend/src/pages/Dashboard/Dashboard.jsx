@@ -20,7 +20,7 @@ import {
 import { fetchPlayers } from '../../api/players.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
 import { startQuestion } from '../../api/games.js'
-import { getQueue, evaluateAnswer } from '../../api/playerAnswers.js'
+import { getQueue, evaluateAnswer, skipPlayerByAdmin } from '../../api/playerAnswers.js'
 import { fetchQuestions } from '../../api/questions.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
 import styles from './Dashboard.module.css'
@@ -149,6 +149,21 @@ function Dashboard() {
       await refreshQueue(gameId)
     } finally {
       // Добавляем небольшую задержку перед сбросом состояния для предотвращения race conditions
+      setTimeout(() => {
+        setPendingGameId(null)
+      }, 300)
+    }
+  }, [refreshQueue])
+
+  const handleSkipPlayer = useCallback(async (gameId, playerId, questionId) => {
+    setPendingGameId(gameId)
+    try {
+      await skipPlayerByAdmin({ playerId, questionId })
+      // Очередь обновится автоматически через socket событие player:queueUpdated
+    } catch (error) {
+      setLocalError(error?.response?.data?.message ?? error?.message ?? 'Не удалось пропустить игрока')
+      await refreshQueue(gameId)
+    } finally {
       setTimeout(() => {
         setPendingGameId(null)
       }, 300)
@@ -713,6 +728,14 @@ function Dashboard() {
                                     >
                                       ✗ Неправильно
                                     </button>
+                                    <button
+                                      type="button"
+                                      className={styles.secondaryButton}
+                                      onClick={() => handleSkipPlayer(game.id, currentPlayer.playerId, questionId)}
+                                      disabled={pendingGameId === game.id}
+                                    >
+                                      ⏭ Пропустить
+                                    </button>
                                   </div>
                                 </div>
                               </div>
@@ -740,6 +763,17 @@ function Dashboard() {
                                   )}
                                   {item.isCorrect === false && (
                                     <span className={styles.queueStatusWrong}>✗ Неправильно</span>
+                                  )}
+                                  {item.isCorrect === null && item.isCorrect !== false && item.isCorrect !== true && (
+                                    <button
+                                      type="button"
+                                      className={styles.secondaryButton}
+                                      onClick={() => handleSkipPlayer(game.id, item.playerId, questionId)}
+                                      disabled={pendingGameId === game.id}
+                                      style={{ marginLeft: 'auto' }}
+                                    >
+                                      ⏭ Пропустить
+                                    </button>
                                   )}
                                 </div>
                               ))}
@@ -769,6 +803,17 @@ function Dashboard() {
                                   )}
                                   {item.isCorrect === false && (
                                     <span className={styles.queueStatusWrong}>✗ Неправильно</span>
+                                  )}
+                                  {(item.waitingForEvaluation || (item.isCorrect === null && item.isCorrect !== false && item.isCorrect !== true)) && (
+                                    <button
+                                      type="button"
+                                      className={styles.secondaryButton}
+                                      onClick={() => handleSkipPlayer(game.id, item.playerId, questionId)}
+                                      disabled={pendingGameId === game.id}
+                                      style={{ marginLeft: 'auto' }}
+                                    >
+                                      ⏭ Пропустить
+                                    </button>
                                   )}
                                 </div>
                               ))}
