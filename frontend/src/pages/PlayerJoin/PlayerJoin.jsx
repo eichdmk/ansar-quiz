@@ -40,20 +40,9 @@ function PlayerJoin() {
   const gameIdFromUrl = searchParams.get('gameId') || ''
 
   const [form, setForm] = useState({
-    gameId: gameIdFromUrl,
     username: '',
     groupName: '',
   })
-
-  // Обновляем gameId если он изменился в URL
-  useEffect(() => {
-    if (gameIdFromUrl && gameIdFromUrl !== form.gameId) {
-      setForm((prev) => ({
-        ...prev,
-        gameId: gameIdFromUrl,
-      }))
-    }
-  }, [gameIdFromUrl, form.gameId])
 
   const avatarPalette = useMemo(
     () => ['5A6FF1', 'FF7F57', '33B679', 'A65DEB', 'FFBA08', '00B4D8'],
@@ -131,14 +120,22 @@ function PlayerJoin() {
 
   const handleSubmit = (event) => {
     event.preventDefault()
+    
+    if (!gameIdFromUrl) {
+      // Показываем сообщение, что нужно отсканировать QR-код
+      return
+    }
+    
     const trimmed = {
-      gameId: form.gameId.trim(),
+      gameId: gameIdFromUrl.trim(),
       username: form.username.trim(),
       groupName: form.groupName.trim(),
     }
-    if (!trimmed.gameId || !trimmed.username) {
+    
+    if (!trimmed.username) {
       return
     }
+    
     dispatch(joinGame(trimmed))
   }
 
@@ -149,12 +146,12 @@ function PlayerJoin() {
   const joinSteps = useMemo(
     () => [
       {
-        title: 'Получите код игры',
-        description: 'Ведущий показывает код, который нужно ввести.',
+        title: 'Отсканируйте QR-код',
+        description: 'Ведущий показывает QR-код, который нужно отсканировать.',
       },
       {
-        title: 'Заполните форму',
-        description: 'Имя и группа помогают ведущему быстро вас найти.',
+        title: 'Введите имя',
+        description: 'Введите своё имя и группу (если нужно).',
       },
       {
         title: 'Ожидайте старт',
@@ -171,7 +168,7 @@ function PlayerJoin() {
           <QRIcon />
           <h1>Подключение к игре</h1>
           <p>
-            Введите код игры, который показал ведущий, а также своё имя и группу. После входа
+            Отсканируйте QR-код, который показал ведущий, и введите своё имя. После входа
             вопросы будут появляться автоматически.
           </p>
         </div>
@@ -188,49 +185,49 @@ function PlayerJoin() {
           ))}
         </div>
 
-        <form className={styles.form} onSubmit={handleSubmit}>
-          <label className={styles.field}>
-            <span>Код игры</span>
-            <input
-              name="gameId"
-              value={form.gameId}
-              onChange={handleChange}
-              placeholder="Например: 12"
-              inputMode="numeric"
-              required
-              disabled={isLoading}
-            />
-          </label>
+        {!gameIdFromUrl ? (
+          <div className={styles.error}>
+            Чтобы подключиться к игре, отсканируйте QR-код, который показал ведущий.
+          </div>
+        ) : (
+          <form className={styles.form} onSubmit={handleSubmit}>
+            {gameIdFromUrl && (
+              <div className={styles.gameIdInfo}>
+                <span>Подключение к игре №{gameIdFromUrl}</span>
+              </div>
+            )}
 
-          <label className={styles.field}>
-            <span>Имя</span>
-            <input
-              name="username"
-              value={form.username}
-              onChange={handleChange}
-              placeholder="Как к вам обращаться"
-              required
-              disabled={isLoading}
-            />
-          </label>
+            <label className={styles.field}>
+              <span>Имя</span>
+              <input
+                name="username"
+                value={form.username}
+                onChange={handleChange}
+                placeholder="Как к вам обращаться"
+                required
+                disabled={isLoading}
+                autoFocus
+              />
+            </label>
 
-          <label className={styles.field}>
-            <span>Группа</span>
-            <input
-              name="groupName"
-              value={form.groupName}
-              onChange={handleChange}
-              placeholder="Например: FE-101 (необязательно)"
-              disabled={isLoading}
-            />
-          </label>
+            <label className={styles.field}>
+              <span>Группа</span>
+              <input
+                name="groupName"
+                value={form.groupName}
+                onChange={handleChange}
+                placeholder="Например: FE-101 (необязательно)"
+                disabled={isLoading}
+              />
+            </label>
 
-          {error && <div className={styles.error}>{error}</div>}
+            {error && <div className={styles.error}>{error}</div>}
 
-          <button type="submit" className={styles.primaryButton} disabled={isLoading}>
-            {isLoading ? 'Подключаем...' : 'Подключиться'}
-          </button>
-        </form>
+            <button type="submit" className={styles.primaryButton} disabled={isLoading || !gameIdFromUrl}>
+              {isLoading ? 'Подключаем...' : 'Подключиться'}
+            </button>
+          </form>
+        )}
 
         {isSuccess && !player && (
           <div className={styles.infoBox}>
