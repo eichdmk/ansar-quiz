@@ -17,32 +17,15 @@ import {
   selectGamesStatus,
   updateGame,
 } from '../../features/games/gamesSlice.js'
-import { fetchPlayers } from '../../api/players.js'
 import { useSocket } from '../../app/SocketProvider.jsx'
 import { startQuestion } from '../../api/games.js'
-import { getQueue, evaluateAnswer, skipPlayerByAdmin } from '../../api/playerAnswers.js'
-import { fetchQuestions } from '../../api/questions.js'
-import resolveImageUrl from '../../utils/resolveImageUrl.js'
+import { evaluateAnswer, skipPlayerByAdmin } from '../../api/playerAnswers.js'
+import CreateGameForm from './components/CreateGameForm.jsx'
+import GameCard from './components/GameCard.jsx'
+import { useGameStats } from './hooks/useGameStats.js'
+import { useGameQueue } from './hooks/useGameQueue.js'
+import { useDashboardSocketHandlers } from './hooks/useDashboardSocketHandlers.js'
 import styles from './Dashboard.module.css'
-
-const PlusIcon = () => (
-  <svg className={styles.icon} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.7" />
-    <path stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" d="M12 8v8M8 12h8" />
-  </svg>
-)
-
-const TrashIcon = () => (
-  <svg className={styles.icon} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-    <path
-      d="M6 8.5h12l-.8 9.6a2 2 0 0 1-2 1.9H8.8a2 2 0 0 1-2-1.9L6 8.5Zm3.5-2.5V4.7A1.7 1.7 0 0 1 11.2 3h1.6a1.7 1.7 0 0 1 1.7 1.7V6h4.4M5 6h14"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-)
 
 function Dashboard() {
   const dispatch = useAppDispatch()
@@ -57,11 +40,45 @@ function Dashboard() {
   const [name, setName] = useState('')
   const [localError, setLocalError] = useState(null)
   const [pendingGameId, setPendingGameId] = useState(null)
-  const [answerStats, setAnswerStats] = useState({})
-  const [currentQuestions, setCurrentQuestions] = useState({}) // gameId -> question preview
-  const [queues, setQueues] = useState({}) // gameId -> { queue: [], questionId: number }
   const trackedGameIdsRef = useRef(new Set())
   const isMountedRef = useRef(true)
+
+  // Кастомные хуки для управления состоянием
+  const {
+    answerStats,
+    refreshPlayers,
+    resetAnswers,
+    clearStatsForGame,
+    updateAnswerStats,
+    setAnswerStats,
+  } = useGameStats()
+
+  const {
+    queues,
+    currentQuestions,
+    refreshQueue: refreshQueueBase,
+    updateQueue,
+    setCurrentQuestion,
+    setQueues,
+    setCurrentQuestions,
+  } = useGameQueue()
+
+  // Используем refreshQueueBase напрямую
+  const refreshQueue = refreshQueueBase
+
+  // Используем хук для обработки socket событий
+  useDashboardSocketHandlers({
+    socket,
+    dispatch,
+    refreshPlayers,
+    resetAnswers,
+    clearStatsForGame,
+    refreshQueue,
+    updateAnswerStats,
+    updateQueue,
+    setCurrentQuestion,
+    trackedGameIdsRef,
+  })
 
   useEffect(
     () => () => {
@@ -70,147 +87,7 @@ function Dashboard() {
     [],
   )
 
-  const refreshPlayers = useCallback(async (gameId) => {
-    const normalizedId = Number(gameId)
-    if (!normalizedId || Number.isNaN(normalizedId)) {
-      return
-    }
-    try {
-      const data = await fetchPlayers(normalizedId)
-      if (!isMountedRef.current) {
-        return
-      }
-      const totalPlayers = data?.items?.length ?? data?.total ?? 0
-      setAnswerStats((prev) => {
-        const previous = prev[normalizedId] ?? { totalPlayers: 0, answers: {} }
-        return {
-          ...prev,
-          [normalizedId]: {
-            ...previous,
-            totalPlayers,
-            answers: previous.answers ?? {},
-          },
-        }
-      })
-    } catch {
-      // пропускаем ошибки загрузки статистики игроков
-    }
-  }, [])
-
-  const refreshQueue = useCallback(async (gameId) => {
-    const normalizedId = Number(gameId)
-    if (!normalizedId || Number.isNaN(normalizedId)) {
-      return
-    }
-    try {
-      const data = await getQueue(normalizedId)
-      if (!isMountedRef.current) {
-        return
-      }
-      const questionId = data.questionId || null
-      setQueues((prev) => ({
-        ...prev,
-        [normalizedId]: {
-          queue: data.queue || [],
-          questionId,
-        },
-      }))
-      
-      // Если есть questionId, но нет currentQuestion, загружаем информацию о вопросе
-      if (questionId && !currentQuestions[normalizedId]) {
-        try {
-          const questionsData = await fetchQuestions(normalizedId)
-          const question = questionsData?.items?.find((q) => q.id === questionId)
-          if (question && isMountedRef.current) {
-            setCurrentQuestions((prev) => ({
-              ...prev,
-              [normalizedId]: question,
-            }))
-          }
-        } catch {
-          // Пропускаем ошибки загрузки вопроса
-        }
-      }
-    } catch {
-      // пропускаем ошибки загрузки очереди
-    }
-  }, [currentQuestions])
-
-  const handleEvaluateAnswer = useCallback(async (gameId, playerId, questionId, isCorrect) => {
-    // Предотвращаем множественные клики - кнопки уже disabled через pendingGameId
-    setPendingGameId(gameId)
-    try {
-      await evaluateAnswer({ playerId, questionId, isCorrect })
-      // Очередь обновится автоматически через socket событие player:queueUpdated
-      // Не вызываем refreshQueue чтобы избежать дублирования
-    } catch (error) {
-      setLocalError(error?.response?.data?.message ?? error?.message ?? 'Не удалось оценить ответ')
-      // При ошибке обновляем очередь вручную, так как socket событие может не прийти
-      await refreshQueue(gameId)
-    } finally {
-      // Добавляем небольшую задержку перед сбросом состояния для предотвращения race conditions
-      setTimeout(() => {
-        setPendingGameId(null)
-      }, 300)
-    }
-  }, [refreshQueue])
-
-  const handleSkipPlayer = useCallback(async (gameId, playerId, questionId) => {
-    setPendingGameId(gameId)
-    try {
-      await skipPlayerByAdmin({ playerId, questionId })
-      // Очередь обновится автоматически через socket событие player:queueUpdated
-    } catch (error) {
-      setLocalError(error?.response?.data?.message ?? error?.message ?? 'Не удалось пропустить игрока')
-      await refreshQueue(gameId)
-    } finally {
-      setTimeout(() => {
-        setPendingGameId(null)
-      }, 300)
-    }
-  }, [refreshQueue])
-
-  const resetAnswers = useCallback((gameId) => {
-    const normalizedId = Number(gameId)
-    if (!normalizedId || Number.isNaN(normalizedId)) {
-      return
-    }
-    setAnswerStats((prev) => {
-      const previous = prev[normalizedId]
-      if (!previous) {
-        return {
-          ...prev,
-          [normalizedId]: {
-            totalPlayers: 0,
-            answers: {},
-          },
-        }
-      }
-      return {
-        ...prev,
-        [normalizedId]: {
-          ...previous,
-          answers: {},
-        },
-      }
-    })
-  }, [])
-
-  const clearStatsForGame = useCallback((gameId) => {
-    const normalizedId = Number(gameId)
-    if (!normalizedId || Number.isNaN(normalizedId)) {
-      return
-    }
-    setAnswerStats((prev) => {
-      if (!prev[normalizedId]) {
-        return prev
-      }
-      const next = { ...prev }
-      delete next[normalizedId]
-      return next
-    })
-  }, [])
-
+  // Инициализация статистики для активных игр
   useEffect(() => {
     const activeGames = games.filter(
       (game) => game.status === 'running' || game.status === 'ready',
@@ -238,7 +115,7 @@ function Dashboard() {
         refreshQueue(game.id)
       }
     })
-  }, [games, refreshPlayers, refreshQueue])
+  }, [games, refreshPlayers, refreshQueue, setAnswerStats])
 
   useEffect(() => {
     if (loadStatus === 'idle') {
@@ -255,156 +132,39 @@ function Dashboard() {
     })
   }, [games, refreshQueue])
 
-  useEffect(() => {
-    if (!socket) {
-      return undefined
-    }
-
-    const handlePlayerAnswer = (payload) => {
-      const gameId = Number(payload?.gameId)
-      const playerId = payload?.playerId ?? payload?.id
-      if (!gameId || !playerId) {
-        return
+  const handleEvaluateAnswer = useCallback(
+    async (gameId, playerId, questionId, isCorrect) => {
+      setPendingGameId(gameId)
+      try {
+        await evaluateAnswer({ playerId, questionId, isCorrect })
+      } catch (error) {
+        setLocalError(error?.response?.data?.message ?? error?.message ?? 'Не удалось оценить ответ')
+        await refreshQueue(gameId)
+      } finally {
+        setTimeout(() => {
+          setPendingGameId(null)
+        }, 300)
       }
-      setAnswerStats((prev) => {
-        const previous = prev[gameId] ?? { totalPlayers: 0, answers: {} }
-        return {
-          ...prev,
-          [gameId]: {
-            ...previous,
-            answers: {
-              ...previous.answers,
-              [String(playerId)]: {
-                isCorrect: Boolean(payload.isCorrect),
-              },
-            },
-          },
-        }
-      })
-    }
+    },
+    [refreshQueue],
+  )
 
-    const handlePlayerJoined = (payload) => {
-      const gameId = Number(payload?.gameId)
-      if (!gameId) {
-        return
+  const handleSkipPlayer = useCallback(
+    async (gameId, playerId, questionId) => {
+      setPendingGameId(gameId)
+      try {
+        await skipPlayerByAdmin({ playerId, questionId })
+      } catch (error) {
+        setLocalError(error?.response?.data?.message ?? error?.message ?? 'Не удалось пропустить игрока')
+        await refreshQueue(gameId)
+      } finally {
+        setTimeout(() => {
+          setPendingGameId(null)
+        }, 300)
       }
-      refreshPlayers(gameId)
-    }
-
-    const handlePlayerLeft = () => {
-      trackedGameIdsRef.current.forEach((gameId) => {
-        refreshPlayers(gameId)
-      })
-    }
-
-    const handleQuestionOpened = (payload) => {
-      const gameId = Number(payload?.gameId)
-      if (!gameId) {
-        return
-      }
-      resetAnswers(gameId)
-      // Сохраняем текущий вопрос при открытии
-      if (payload.question) {
-        setCurrentQuestions((prev) => ({
-          ...prev,
-          [gameId]: payload.question,
-        }))
-      }
-      // Обновляем очередь при открытии вопроса
-      refreshQueue(gameId)
-    }
-
-    const handleGameStarted = (payload) => {
-      const gameId = Number(payload?.gameId)
-      if (!gameId) {
-        return
-      }
-      refreshPlayers(gameId)
-      resetAnswers(gameId)
-    }
-
-    const handleGameOpened = (payload) => {
-      const gameId = Number(payload?.gameId)
-      if (!gameId) {
-        return
-      }
-      refreshPlayers(gameId)
-      resetAnswers(gameId)
-    }
-
-    const handleGameFinished = (payload) => {
-      const gameId = Number(payload?.gameId)
-      if (!gameId) {
-        return
-      }
-      clearStatsForGame(gameId)
-    }
-
-    const handleQuestionPreview = (payload) => {
-      const gameId = Number(payload?.gameId)
-      if (!gameId) {
-        return
-      }
-      setCurrentQuestions((prev) => ({
-        ...prev,
-        [gameId]: payload.question,
-      }))
-      // Обновляем состояние игры - вопрос в preview
-      dispatch(updateGame({ id: gameId, is_question_closed: true }))
-    }
-
-    const handleQuestionReady = (payload) => {
-      const gameId = Number(payload?.gameId)
-      if (!gameId) {
-        return
-      }
-      // НЕ удаляем currentQuestion - он нужен для определения типа вопроса
-      // Обновляем состояние игры - вопрос больше не в preview
-      dispatch(updateGame({ id: gameId, is_question_closed: false }))
-    }
-
-    const handleQueueUpdated = (payload) => {
-      const gameId = Number(payload?.gameId)
-      if (!gameId) {
-        return
-      }
-      setQueues((prev) => ({
-        ...prev,
-        [gameId]: {
-          queue: payload.queue || [],
-          questionId: payload.questionId || prev[gameId]?.questionId || null,
-        },
-      }))
-    }
-
-    socket.on('player:answer', handlePlayerAnswer)
-    socket.on('player:joined', handlePlayerJoined)
-    socket.on('player:left', handlePlayerLeft)
-    socket.on('game:questionOpened', handleQuestionOpened)
-    socket.on('game:questionPreview', handleQuestionPreview)
-    socket.on('game:questionReady', handleQuestionReady)
-    socket.on('game:started', handleGameStarted)
-    socket.on('game:opened', handleGameOpened)
-    socket.on('game:finished', handleGameFinished)
-    socket.on('game:stopped', handleGameFinished)
-    socket.on('game:closed', handleGameFinished)
-    socket.on('player:queueUpdated', handleQueueUpdated)
-
-    return () => {
-      socket.off('player:answer', handlePlayerAnswer)
-      socket.off('player:joined', handlePlayerJoined)
-      socket.off('player:left', handlePlayerLeft)
-      socket.off('game:questionOpened', handleQuestionOpened)
-      socket.off('game:questionPreview', handleQuestionPreview)
-      socket.off('game:questionReady', handleQuestionReady)
-      socket.off('game:started', handleGameStarted)
-      socket.off('game:opened', handleGameOpened)
-      socket.off('game:finished', handleGameFinished)
-      socket.off('game:stopped', handleGameFinished)
-      socket.off('game:closed', handleGameFinished)
-      socket.off('player:queueUpdated', handleQueueUpdated)
-    }
-  }, [socket, refreshPlayers, resetAnswers, clearStatsForGame, refreshQueue])
+    },
+    [refreshQueue],
+  )
 
   const handleCreate = (event) => {
     event.preventDefault()
@@ -414,9 +174,12 @@ function Dashboard() {
       return
     }
     setLocalError(null)
-    dispatch(addGame(trimmed)).unwrap().then(() => setName('')).catch((error) => {
-      setLocalError(error ?? 'Не удалось создать квиз')
-    })
+    dispatch(addGame(trimmed))
+      .unwrap()
+      .then(() => setName(''))
+      .catch((error) => {
+        setLocalError(error ?? 'Не удалось создать квиз')
+      })
   }
 
   const handleDelete = (id) => {
@@ -529,24 +292,13 @@ function Dashboard() {
         </div>
       </header>
 
-      <form className={styles.form} onSubmit={handleCreate}>
-        <label className={styles.field}>
-          <span>Название нового квиза</span>
-          <input
-            type="text"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Например: Топ 5 причин почему js лучше пайтона"
-          />
-        </label>
-        {(localError || globalError) && (
-          <div className={styles.error}>{localError ?? globalError}</div>
-        )}
-        <button type="submit" className={styles.createButton}>
-          <PlusIcon />
-          Создать квиз
-        </button>
-      </form>
+      <CreateGameForm
+        name={name}
+        error={localError}
+        globalError={globalError}
+        onChange={(event) => setName(event.target.value)}
+        onSubmit={handleCreate}
+      />
 
       <section className={styles.listSection}>
         <div className={styles.listHeader}>
@@ -570,358 +322,27 @@ function Dashboard() {
 
         {!isLoading && !isError && games.length > 0 && (
           <div className={styles.list}>
-            {games.map((game) => {
-              const stats = answerStats[Number(game.id)] ?? { totalPlayers: 0, answers: {} }
-              const totalPlayersInGame = stats.totalPlayers ?? 0
-              const answersRecord = stats.answers ?? {}
-              const answeredCount = Object.keys(answersRecord).length
-              const wrongCount = Object.values(answersRecord).filter(
-                (item) => item && item.isCorrect === false,
-              ).length
-              const pendingCount = Math.max(totalPlayersInGame - answeredCount, 0)
-              const shouldShowAnswerStats =
-                game.status === 'running' && (totalPlayersInGame > 0 || answeredCount > 0)
-              const currentQuestion = currentQuestions[Number(game.id)]
-              const isQuestionInPreview = game.status === 'running' && game.is_question_closed && currentQuestion
-
-              return (
-                <article
-                  key={game.id}
-                  className={`${styles.card} ${
-                    game.status === 'running'
-                      ? styles.cardRunning
-                      : game.status === 'finished'
-                        ? styles.cardFinished
-                        : game.status === 'ready'
-                          ? styles.cardReady
-                          : ''
-                  }`}
-                >
-                  <div className={styles.cardInfo}>
-                    <div className={styles.cardHeaderRow}>
-                      <h3>{game.name}</h3>
-                      <span className={`${styles.statusBadge} ${styles[`status_${game.status}`]}`}>
-                        {game.status === 'running'
-                          ? 'В процессе'
-                          : game.status === 'finished'
-                            ? 'Завершена'
-                            : game.status === 'ready'
-                              ? 'Комната открыта'
-                              : 'Черновик'}
-                      </span>
-                    </div>
-                    <span className={styles.cardMeta}>
-                      Создано{' '}
-                      {new Intl.DateTimeFormat('ru-RU', {
-                        day: '2-digit',
-                        month: 'long',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      }).format(new Date(game.created_at))}
-                    </span>
-                    {game.status === 'ready' && totalPlayersInGame > 0 && (
-                      <div className={styles.answerStats}>
-                        <span className={styles.answerStatsTitle}>Игроков в комнате</span>
-                        <div className={styles.answerStatsRow}>
-                          <span className={styles.answerStatsAnswered}>{totalPlayersInGame}</span>
-                        </div>
-                      </div>
-                    )}
-                    {isQuestionInPreview && (
-                      <div className={styles.questionPreview}>
-                        <span className={styles.answerStatsTitle}>Текущий вопрос (превью)</span>
-                        <div className={styles.questionPreviewContent}>
-                          <h4>{currentQuestion.text}</h4>
-                          {currentQuestion.imageUrl && (
-                            <div className={styles.questionPreviewImage}>
-                              <img src={resolveImageUrl(currentQuestion.imageUrl)} alt="Изображение вопроса" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    {shouldShowAnswerStats && (
-                      <div className={styles.answerStats}>
-                        <span className={styles.answerStatsTitle}>Ответы текущего вопроса</span>
-                        <div className={styles.answerStatsRow}>
-                          <span className={styles.answerStatsWrong}>
-                            Неверных: {wrongCount} из {Math.max(totalPlayersInGame, 0)}
-                          </span>
-                          <span className={styles.answerStatsAnswered}>
-                            Ответили: {answeredCount} / {Math.max(totalPlayersInGame, 0)}
-                          </span>
-                          {pendingCount > 0 && (
-                            <span className={styles.answerStatsPending}>
-                              Не ответили: {pendingCount}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    {game.status === 'running' && !isQuestionInPreview && (() => {
-                      const queueData = queues[Number(game.id)]
-                      const queue = queueData?.queue || []
-                      const questionId = queueData?.questionId || currentQuestion?.id
-                      
-                      // Определяем тип вопроса по полю questionType
-                      const isValidQuestionId = questionId != null && !Number.isNaN(Number(questionId))
-                      
-                      // Проверяем, является ли вопрос устным
-                      // Используем только questionType из currentQuestion
-                      // Fallback: если questionType отсутствует, проверяем наличие вариантов ответа
-                      let isVerbalQuestion = false
-                      
-                      if (currentQuestion && isValidQuestionId && currentQuestion.id === Number(questionId)) {
-                        // Если currentQuestion есть и совпадает с questionId, используем его тип
-                        if (currentQuestion.questionType === 'verbal') {
-                          isVerbalQuestion = true
-                        } else if (currentQuestion.questionType === 'multiple_choice') {
-                          isVerbalQuestion = false
-                        } else {
-                          // Fallback: если questionType отсутствует, проверяем наличие вариантов ответа
-                          isVerbalQuestion = !currentQuestion.answers || currentQuestion.answers.length === 0
-                        }
-                      }
-                      
-                      // Для устных вопросов показываем кнопки для первого игрока в очереди
-                      // Показываем панельку ТОЛЬКО если:
-                      // 1. Это устный вопрос (questionType === 'verbal')
-                      // 2. Есть очередь и questionId валиден
-                      // 3. Вопрос открыт (не в preview)
-                      // 4. Первый игрок в очереди еще не оценен
-                      if (isVerbalQuestion && isValidQuestionId && queue.length > 0) {
-                        // Первый игрок в очереди (position = 0 или первый в массиве) - это тот, кто сейчас отвечает
-                        const currentPlayer = queue[0]
-                        // Для устных вопросов показываем панельку, если игрок еще не оценен
-                        // (isCorrect === null/undefined или waitingForEvaluation === true)
-                        const needsEvaluation = currentPlayer && 
-                          (currentPlayer.isCorrect === null || 
-                           currentPlayer.isCorrect === undefined || 
-                           currentPlayer.waitingForEvaluation === true)
-                        
-                        // Показываем панельку оценки для первого игрока в очереди
-                        if (needsEvaluation && currentPlayer && currentPlayer.playerId) {
-                          return (
-                            <div className={styles.answerStats}>
-                              <span className={styles.answerStatsTitle}>Оценка ответа</span>
-                              <div className={styles.queueList}>
-                                <div className={styles.queueItem}>
-                                  <span className={styles.queuePlayerName}>{currentPlayer.username}</span>
-                                  {currentPlayer.groupName && (
-                                    <span className={styles.queueGroupName}>({currentPlayer.groupName})</span>
-                                  )}
-                                  <div className={styles.queueActions}>
-                                    <button
-                                      type="button"
-                                      className={styles.successButton}
-                                      onClick={() => handleEvaluateAnswer(game.id, currentPlayer.playerId, questionId, true)}
-                                      disabled={pendingGameId === game.id}
-                                    >
-                                      ✓ Правильно
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className={styles.warningButton}
-                                      onClick={() => handleEvaluateAnswer(game.id, currentPlayer.playerId, questionId, false)}
-                                      disabled={pendingGameId === game.id}
-                                    >
-                                      ✗ Неправильно
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className={styles.secondaryButton}
-                                      onClick={() => handleSkipPlayer(game.id, currentPlayer.playerId, questionId)}
-                                      disabled={pendingGameId === game.id}
-                                    >
-                                      ⏭ Пропустить
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        }
-                      }
-                      
-                      // Для вопросов с вариантами показываем очередь
-                      // Результаты (✅/❌) определяются автоматически системой при отправке ответа
-                      // Админ может только пропустить игрока (исключить из текущего раунда)
-                      if (!isVerbalQuestion && queue.length > 0) {
-                        return (
-                          <div className={styles.answerStats}>
-                            <span className={styles.answerStatsTitle}>Очередь ответов ({queue.length})</span>
-                            <div className={styles.queueList}>
-                              {queue.map((item, idx) => (
-                                <div key={item.playerId} className={styles.queueItem}>
-                                  <span className={styles.queuePosition}>{idx + 1}.</span>
-                                  <span className={styles.queuePlayerName}>{item.username}</span>
-                                  {item.groupName && (
-                                    <span className={styles.queueGroupName}>({item.groupName})</span>
-                                  )}
-                                  {/* Показываем автоматически определенный результат */}
-                                  {item.isCorrect === true && (
-                                    <span className={styles.queueStatusCorrect}>✓ Правильно</span>
-                                  )}
-                                  {item.isCorrect === false && (
-                                    <span className={styles.queueStatusWrong}>✗ Неправильно</span>
-                                  )}
-                                  {/* Кнопка пропуска доступна для:
-                                      - Игроков, которые еще не ответили (isCorrect === null)
-                                      - Игроков, которые ответили неправильно (isCorrect === false)
-                                      Это позволяет админу исключить игрока из текущего раунда */}
-                                  {(item.isCorrect === null || item.isCorrect === false) && (
-                                    <button
-                                      type="button"
-                                      className={styles.secondaryButton}
-                                      onClick={() => handleSkipPlayer(game.id, item.playerId, questionId)}
-                                      disabled={pendingGameId === game.id}
-                                      style={{ marginLeft: 'auto' }}
-                                    >
-                                      ⏭ Пропустить
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      }
-                      
-                      // Если устный вопрос, но панелька оценки не показана (все игроки оценены или нет игроков)
-                      if (isVerbalQuestion && queue.length > 0) {
-                        return (
-                          <div className={styles.answerStats}>
-                            <span className={styles.answerStatsTitle}>Очередь ответов ({queue.length})</span>
-                            <div className={styles.queueList}>
-                              {queue.map((item, idx) => (
-                                <div key={item.playerId} className={styles.queueItem}>
-                                  <span className={styles.queuePosition}>{idx + 1}.</span>
-                                  <span className={styles.queuePlayerName}>{item.username}</span>
-                                  {item.groupName && (
-                                    <span className={styles.queueGroupName}>({item.groupName})</span>
-                                  )}
-                                  {item.waitingForEvaluation && (
-                                    <span className={styles.queueStatus}>Ожидает оценки</span>
-                                  )}
-                                  {item.isCorrect === true && (
-                                    <span className={styles.queueStatusCorrect}>✓ Правильно</span>
-                                  )}
-                                  {item.isCorrect === false && (
-                                    <span className={styles.queueStatusWrong}>✗ Неправильно</span>
-                                  )}
-                                  {(item.waitingForEvaluation || (item.isCorrect === null && item.isCorrect !== false && item.isCorrect !== true)) && (
-                                    <button
-                                      type="button"
-                                      className={styles.secondaryButton}
-                                      onClick={() => handleSkipPlayer(game.id, item.playerId, questionId)}
-                                      disabled={pendingGameId === game.id}
-                                      style={{ marginLeft: 'auto' }}
-                                    >
-                                      ⏭ Пропустить
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      }
-                      return null
-                    })()}
-                  </div>
-                  <div className={styles.cardActions}>
-                    <button
-                      type="button"
-                      className={styles.primaryButton}
-                      onClick={() => navigate(`/admin/game/${game.id}`)}
-                      disabled={pendingGameId === game.id}
-                    >
-                      Вопросы
-                    </button>
-                    {game.status === 'draft' && (
-                      <button
-                        type="button"
-                        className={styles.primaryButton}
-                        onClick={() => handleOpen(game)}
-                        disabled={pendingGameId === game.id}
-                      >
-                        Открыть комнату
-                      </button>
-                    )}
-                    {game.status === 'ready' && (
-                      <button
-                        type="button"
-                        className={styles.successButton}
-                        onClick={() => handleLaunch(game)}
-                        disabled={pendingGameId === game.id}
-                      >
-                        Запустить
-                      </button>
-                    )}
-                    {game.status === 'ready' && (
-                      <button
-                        type="button"
-                        className={styles.secondaryButton}
-                        onClick={() => handleCancelLobby(game)}
-                        disabled={pendingGameId === game.id}
-                      >
-                        Отменить комнату
-                      </button>
-                    )}
-                    {game.status === 'running' && (
-                      <button
-                        type="button"
-                        className={styles.warningButton}
-                        onClick={() => handleStop(game)}
-                        disabled={pendingGameId === game.id}
-                      >
-                        Завершить
-                      </button>
-                    )}
-                    {game.status === 'running' && isQuestionInPreview && (
-                      <button
-                        type="button"
-                        className={styles.successButton}
-                        onClick={() => handleStartQuestion(game)}
-                        disabled={pendingGameId === game.id}
-                      >
-                        Старт вопроса
-                      </button>
-                    )}
-                    {game.status === 'running' && (
-                      <button
-                        type="button"
-                        className={styles.primaryButton}
-                        onClick={() => handleNextQuestion(game)}
-                        disabled={pendingGameId === game.id}
-                      >
-                        Следующий вопрос
-                      </button>
-                    )}
-                    {game.status === 'finished' && (
-                      <button
-                        type="button"
-                        className={styles.primaryButton}
-                        onClick={() => handleRestart(game)}
-                        disabled={pendingGameId === game.id}
-                      >
-                        Перезапустить игру
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className={styles.secondaryButton}
-                      onClick={() => handleDelete(game.id)}
-                      disabled={game.status === 'running' || pendingGameId === game.id}
-                    >
-                      <TrashIcon />
-                      Удалить
-                    </button>
-                  </div>
-                </article>
-              )
-            })}
+            {games.map((game) => (
+              <GameCard
+                key={game.id}
+                game={game}
+                answerStats={answerStats}
+                currentQuestions={currentQuestions}
+                queues={queues}
+                pendingGameId={pendingGameId}
+                navigate={navigate}
+                onEvaluateAnswer={handleEvaluateAnswer}
+                onSkipPlayer={handleSkipPlayer}
+                onOpen={handleOpen}
+                onLaunch={handleLaunch}
+                onCancelLobby={handleCancelLobby}
+                onStop={handleStop}
+                onStartQuestion={handleStartQuestion}
+                onNextQuestion={handleNextQuestion}
+                onRestart={handleRestart}
+                onDelete={handleDelete}
+              />
+            ))}
           </div>
         )}
       </section>
@@ -937,4 +358,3 @@ function Dashboard() {
 }
 
 export default Dashboard
-
