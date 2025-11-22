@@ -234,7 +234,8 @@ export async function submitAnswer(request, reply) {
     }
 
     if (request.server?.io) {
-      request.server.io.emit('player:answer', {
+      const gameRoom = `game:${player.game_id}`
+      request.server.io.to(gameRoom).emit('player:answer', {
         playerId: preparedPlayerId,
         questionId: preparedQuestionId,
         answerId: preparedAnswerId,
@@ -248,8 +249,8 @@ export async function submitAnswer(request, reply) {
         await emitQueueUpdate(request.server.io, player.game_id, preparedQuestionId)
       } else if (awarded && updatedPlayer) {
         // Правильный ответ на вопрос с вариантами
-        request.server.io.emit('player:scoreUpdated', mapPlayer(updatedPlayer))
-        request.server.io.emit('game:questionClosed', {
+        request.server.io.to(gameRoom).emit('player:scoreUpdated', mapPlayer(updatedPlayer))
+        request.server.io.to(gameRoom).emit('game:questionClosed', {
           gameId: player.game_id,
           questionId: preparedQuestionId,
           winner: mapPlayer(updatedPlayer),
@@ -451,8 +452,9 @@ async function assignQuestionToNextInQueue(io, gameId, questionId) {
       if (questionResult.rowCount > 0) {
         const question = questionResult.rows[0]
         const answers = question.answers || []
+        const gameRoom = `game:${gameId}`
         
-        io.emit('player:questionAssigned', {
+        io.to(gameRoom).emit('player:questionAssigned', {
           gameId,
           questionId,
           playerId: nextPlayer.player_id,
@@ -477,7 +479,8 @@ async function assignQuestionToNextInQueue(io, gameId, questionId) {
     console.error('Error assigning question to next in queue:', error)
     // Отправляем ошибку через socket для уведомления админа
     if (io) {
-      io.emit('admin:error', {
+      const adminRoom = `game:${gameId}:admin`
+      io.to(adminRoom).emit('admin:error', {
         gameId,
         message: 'Ошибка при передаче вопроса следующему игроку',
         error: error.message,
@@ -513,7 +516,8 @@ async function emitQueueUpdate(io, gameId, questionId, client = pool) {
     await invalidateQueueCache(gameId, questionId)
   }
   
-  io.emit('player:queueUpdated', {
+  const gameRoom = `game:${gameId}`
+  io.to(gameRoom).emit('player:queueUpdated', {
     gameId,
     questionId,
     queue,
@@ -640,7 +644,8 @@ export async function requestAnswer(request, reply) {
       await invalidateQueueCache(preparedGameId, questionId)
 
       if (request.server?.io) {
-        request.server.io.emit('player:questionAssigned', {
+        const gameRoom = `game:${preparedGameId}`
+        request.server.io.to(gameRoom).emit('player:questionAssigned', {
           gameId: preparedGameId,
           questionId,
           playerId: preparedPlayerId,
@@ -769,7 +774,8 @@ export async function skipQuestion(request, reply) {
     await invalidateQueueCache(player.game_id, preparedQuestionId)
 
     if (request.server?.io) {
-      request.server.io.emit('player:skipped', {
+      const gameRoom = `game:${player.game_id}`
+      request.server.io.to(gameRoom).emit('player:skipped', {
         gameId: player.game_id,
         questionId: preparedQuestionId,
         playerId: preparedPlayerId,
@@ -967,7 +973,8 @@ export async function evaluateAnswer(request, reply) {
 
     // Отправляем socket события
     if (request.server?.io) {
-      request.server.io.emit('player:answerEvaluated', {
+      const gameRoom = `game:${player.game_id}`
+      request.server.io.to(gameRoom).emit('player:answerEvaluated', {
         playerId: preparedPlayerId,
         questionId: preparedQuestionId,
         isCorrect,
@@ -975,8 +982,8 @@ export async function evaluateAnswer(request, reply) {
       })
 
       if (awarded && updatedPlayer) {
-        request.server.io.emit('player:scoreUpdated', mapPlayer(updatedPlayer))
-        request.server.io.emit('game:questionClosed', {
+        request.server.io.to(gameRoom).emit('player:scoreUpdated', mapPlayer(updatedPlayer))
+        request.server.io.to(gameRoom).emit('game:questionClosed', {
           gameId: player.game_id,
           questionId: preparedQuestionId,
           winner: mapPlayer(updatedPlayer),
@@ -1151,7 +1158,8 @@ export async function skipPlayerByAdmin(request, reply) {
     await invalidateQueueCache(player.game_id, preparedQuestionId)
 
     if (request.server?.io) {
-      request.server.io.emit('player:skipped', {
+      const gameRoom = `game:${player.game_id}`
+      request.server.io.to(gameRoom).emit('player:skipped', {
         gameId: player.game_id,
         questionId: preparedQuestionId,
         playerId: preparedPlayerId,

@@ -82,8 +82,76 @@ app.addHook('onReady', async function () {
   this.server.io = io
   io.on('connection', (socket) => {
     this.log.info({ id: socket.id }, 'Socket.io client connected')
+    
+    // Инициализируем множество присоединенных комнат
+    socket.data.joinedRooms = new Set()
+    
+    socket.on('join:game', async ({ gameId, role, playerId }) => {
+      if (!gameId || !role) {
+        this.log.warn({ id: socket.id, gameId, role }, 'Invalid join:game request')
+        return
+      }
+      
+      const gameRoom = `game:${gameId}`
+      const adminRoom = `game:${gameId}:admin`
+      
+      try {
+        // Присоединяем к общей комнате игры
+        await socket.join(gameRoom)
+        socket.data.joinedRooms.add(gameRoom)
+        this.log.info({ id: socket.id, gameId, role, room: gameRoom }, 'Socket joined game room')
+        
+        // Если роль - администратор, присоединяем к admin комнате
+        if (role === 'admin') {
+          await socket.join(adminRoom)
+          socket.data.joinedRooms.add(adminRoom)
+          this.log.info({ id: socket.id, gameId, room: adminRoom }, 'Socket joined admin room')
+        }
+        
+        // Сохраняем информацию о присоединении
+        socket.data.gameId = gameId
+        socket.data.role = role
+        if (playerId) {
+          socket.data.playerId = playerId
+        }
+      } catch (error) {
+        this.log.error({ id: socket.id, gameId, error }, 'Error joining game room')
+      }
+    })
+    
+    socket.on('leave:game', async ({ gameId }) => {
+      if (!gameId) {
+        this.log.warn({ id: socket.id, gameId }, 'Invalid leave:game request')
+        return
+      }
+      
+      const gameRoom = `game:${gameId}`
+      const adminRoom = `game:${gameId}:admin`
+      
+      try {
+        await socket.leave(gameRoom)
+        socket.data.joinedRooms.delete(gameRoom)
+        this.log.info({ id: socket.id, gameId, room: gameRoom }, 'Socket left game room')
+        
+        await socket.leave(adminRoom)
+        socket.data.joinedRooms.delete(adminRoom)
+        this.log.info({ id: socket.id, gameId, room: adminRoom }, 'Socket left admin room')
+        
+        // Очищаем данные, если выходим из текущей игры
+        if (socket.data.gameId === gameId) {
+          delete socket.data.gameId
+          delete socket.data.role
+          delete socket.data.playerId
+        }
+      } catch (error) {
+        this.log.error({ id: socket.id, gameId, error }, 'Error leaving game room')
+      }
+    })
+    
     socket.on('disconnect', (reason) => {
-      this.log.info({ id: socket.id, reason }, 'Socket.io client disconnected')
+      this.log.info({ id: socket.id, reason, rooms: Array.from(socket.data.joinedRooms || []) }, 'Socket.io client disconnected')
+      // Socket.IO автоматически исключит сокет из всех комнат при disconnect
+      socket.data.joinedRooms.clear()
     })
   })
 })

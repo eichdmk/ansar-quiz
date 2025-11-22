@@ -87,6 +87,45 @@ function Dashboard() {
     [],
   )
 
+  // Присоединение к комнатам активных игр и выход из завершенных
+  useEffect(() => {
+    if (!socket) {
+      return
+    }
+
+    if (!socket.connected) {
+      socket.connect()
+    }
+
+    const activeGames = games.filter(
+      (game) => game.status === 'running' || game.status === 'ready',
+    )
+    const activeGameIds = new Set(activeGames.map((game) => Number(game.id)))
+
+    // Присоединяемся к комнатам активных игр как администратор
+    activeGames.forEach((game) => {
+      const gameId = Number(game.id)
+      socket.emit('join:game', {
+        gameId,
+        role: 'admin',
+      })
+    })
+
+    // Выходим из комнат завершенных игр
+    const allGameIds = new Set(games.map((game) => Number(game.id)))
+    const finishedGameIds = Array.from(allGameIds).filter((id) => !activeGameIds.has(id))
+
+    return () => {
+      // При размонтировании выходим из всех комнат
+      activeGameIds.forEach((gameId) => {
+        socket.emit('leave:game', { gameId })
+      })
+      finishedGameIds.forEach((gameId) => {
+        socket.emit('leave:game', { gameId })
+      })
+    }
+  }, [socket, games])
+
   // Инициализация статистики для активных игр
   useEffect(() => {
     const activeGames = games.filter(

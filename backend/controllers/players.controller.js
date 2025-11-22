@@ -61,7 +61,8 @@ export async function createPlayer(request, reply) {
     await invalidatePlayerCache(preparedGameId)
 
     if (request.server?.io) {
-      request.server.io.emit('player:joined', payload)
+      const gameRoom = `game:${preparedGameId}`
+      request.server.io.to(gameRoom).emit('player:joined', payload)
     }
     reply.code(201).send(payload)
   } catch (error) {
@@ -143,7 +144,8 @@ export async function updatePlayerScore(request, reply) {
     await invalidatePlayerCache(payload.gameId)
 
     if (request.server?.io) {
-      request.server.io.emit('player:scoreUpdated', payload)
+      const gameRoom = `game:${payload.gameId}`
+      request.server.io.to(gameRoom).emit('player:scoreUpdated', payload)
     }
     reply.send(payload)
   } catch (error) {
@@ -177,7 +179,8 @@ export async function deletePlayer(request, reply) {
     await invalidatePlayerCache(gameId)
 
     if (request.server?.io) {
-      request.server.io.emit('player:left', { id: playerId })
+      const gameRoom = `game:${gameId}`
+      request.server.io.to(gameRoom).emit('player:left', { id: playerId })
     }
 
     reply.send({ id: playerId })

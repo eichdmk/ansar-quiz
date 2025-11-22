@@ -54,6 +54,27 @@ function Leaderboard() {
       .finally(() => setGamesLoading(false))
   }, [])
 
+  // Присоединение к комнате выбранной игры как администратор
+  useEffect(() => {
+    if (!selectedGameId || !socket) {
+      return
+    }
+
+    if (!socket.connected) {
+      socket.connect()
+    }
+
+    const gameId = Number(selectedGameId)
+    socket.emit('join:game', {
+      gameId,
+      role: 'admin',
+    })
+
+    return () => {
+      socket.emit('leave:game', { gameId })
+    }
+  }, [selectedGameId, socket])
+
   useEffect(() => {
     if (!selectedGameId) {
       return () => { }

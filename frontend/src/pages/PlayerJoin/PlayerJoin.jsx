@@ -93,6 +93,25 @@ function PlayerJoin() {
     }
   }, [player, navigate])
 
+  // Присоединение к комнате игры после успешного создания игрока
+  useEffect(() => {
+    if (player && player.gameId && socket) {
+      if (!socket.connected) {
+        socket.connect()
+      }
+      
+      socket.emit('join:game', {
+        gameId: player.gameId,
+        role: 'player',
+        playerId: player.id,
+      })
+
+      return () => {
+        socket.emit('leave:game', { gameId: player.gameId })
+      }
+    }
+  }, [player, socket])
+
   useEffect(() => {
     const handleGameStarted = (payload) => {
       if (player && payload.gameId === player.gameId) {

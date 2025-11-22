@@ -98,6 +98,25 @@ function PlayerPlay() {
     }
   }, [player, navigate])
 
+  // Присоединение к комнате игры при монтировании компонента
+  useEffect(() => {
+    if (player && player.gameId && socket) {
+      if (!socket.connected) {
+        socket.connect()
+      }
+
+      socket.emit('join:game', {
+        gameId: player.gameId,
+        role: 'player',
+        playerId: player.id,
+      })
+
+      return () => {
+        socket.emit('leave:game', { gameId: player.gameId })
+      }
+    }
+  }, [player, socket])
+
   const applyQuestion = useCallback((payload) => {
     if (!payload) {
       return

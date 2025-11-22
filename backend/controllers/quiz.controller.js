@@ -20,20 +20,22 @@ function scheduleCountdown(io, gameId, { question, total, onComplete }) {
     const timers = []
     const countdownValues = [3, 2, 1]
 
+    const gameRoom = `game:${gameId}`
+    
     countdownValues.forEach((value, index) => {
         const timerId = setTimeout(() => {
-            io.emit('game:countdown', { gameId, value })
+            io.to(gameRoom).emit('game:countdown', { gameId, value })
         }, index * 1000)
         timers.push(timerId)
     })
 
     const finalTimer = setTimeout(() => {
-        io.emit('game:countdown', { gameId, value: 0 })
+        io.to(gameRoom).emit('game:countdown', { gameId, value: 0 })
         if (onComplete) {
             onComplete()
         } else {
             // Старый код для обратной совместимости
-            io.emit('game:started', {
+            io.to(gameRoom).emit('game:started', {
                 gameId,
                 index: 0,
                 total,
@@ -309,7 +311,8 @@ export async function openQuiz(request, reply) {
         const { invalidateGameCache } = await import('../services/cache.service.js')
         await invalidateGameCache(gameId)
 
-        request.server.io.emit('game:opened', {
+        const gameRoom = `game:${gameId}`
+        request.server.io.to(gameRoom).emit('game:opened', {
             gameId,
             total: totalQuestions,
         })
@@ -386,7 +389,8 @@ export async function resetQuiz(request, reply) {
         const { invalidateGameCache } = await import('../services/cache.service.js')
         await invalidateGameCache(gameId)
 
-        request.server.io.emit('game:closed', { gameId })
+        const gameRoom = `game:${gameId}`
+        request.server.io.to(gameRoom).emit('game:closed', { gameId })
 
         reply.send({
             message: 'Комната закрыта. Можно начать заново.',
@@ -475,10 +479,11 @@ export async function restartQuiz(request, reply) {
         const game = updateGame.rows[0]
 
         if (io) {
-            io.emit('game:closed', { gameId })
+            const gameRoom = `game:${gameId}`
+            io.to(gameRoom).emit('game:closed', { gameId })
 
             resetPlayers.rows.forEach((player) => {
-                io.emit('player:scoreUpdated', {
+                io.to(gameRoom).emit('player:scoreUpdated', {
                     id: player.id,
                     username: player.username,
                     groupName: player.group_name,
@@ -488,7 +493,7 @@ export async function restartQuiz(request, reply) {
                 })
             })
 
-            io.emit('game:opened', {
+            io.to(gameRoom).emit('game:opened', {
                 gameId,
                 total: totalQuestions,
             })
@@ -578,21 +583,24 @@ export async function startQuiz(request, reply) {
         const { invalidateGameCache } = await import('../services/cache.service.js')
         await invalidateGameCache(gameId)
 
+        const gameRoom = `game:${gameId}`
+        const adminRoom = `game:${gameId}:admin`
+        
         if (firstQuestion) {
             // Отправляем первый вопрос в preview для админа (без отсчета)
-            request.server.io.emit('game:questionPreview', {
+            request.server.io.to(adminRoom).emit('game:questionPreview', {
                 gameId,
                 question: firstQuestion,
                 index: 0,
                 total: totalQuestions,
             })
-            request.server.io.emit('game:started', {
+            request.server.io.to(gameRoom).emit('game:started', {
                 gameId,
                 index: 0,
                 total: totalQuestions,
             })
         } else {
-            request.server.io.emit('game:started', {
+            request.server.io.to(gameRoom).emit('game:started', {
                 gameId,
                 index: 0,
                 total: totalQuestions,
@@ -636,8 +644,9 @@ export async function stopQuiz(request, reply) {
         const { invalidateGameCache } = await import('../services/cache.service.js')
         await invalidateGameCache(gameId)
 
-        request.server.io.emit('game:stopped', { gameId })
-        request.server.io.emit('game:finished', { gameId })
+        const gameRoom = `game:${gameId}`
+        request.server.io.to(gameRoom).emit('game:stopped', { gameId })
+        request.server.io.to(gameRoom).emit('game:finished', { gameId })
 
         reply.send({ message: 'Игра остановлена', game })
     } catch (error) {
@@ -718,7 +727,8 @@ export async function startQuestion(request, reply) {
                 }
                 
                 // Отправляем событие что вопрос готов к ответу
-                request.server.io.emit('game:questionReady', {
+                const gameRoom = `game:${gameId}`
+                request.server.io.to(gameRoom).emit('game:questionReady', {
                     gameId,
                     question: currentQuestion,
                     index: game.current_question_index,
@@ -792,7 +802,8 @@ export async function advanceQuizQuestion(request, reply) {
             const { invalidateGameCache } = await import('../services/cache.service.js')
             await invalidateGameCache(gameId)
 
-            request.server.io.emit('game:finished', { gameId })
+            const gameRoom = `game:${gameId}`
+            request.server.io.to(gameRoom).emit('game:finished', { gameId })
 
             reply.send({
                 message: 'Игра завершена',
@@ -824,23 +835,25 @@ export async function advanceQuizQuestion(request, reply) {
         await invalidateGameCache(gameId)
 
         let finished = false
+        const gameRoom = `game:${gameId}`
+        const adminRoom = `game:${gameId}:admin`
 
         if (nextQuestion) {
             // Отправляем событие preview для админа, вопрос не показывается ученикам
-            request.server.io.emit('game:questionPreview', {
+            request.server.io.to(adminRoom).emit('game:questionPreview', {
                 gameId,
                 question: nextQuestion,
                 index: nextIndex,
                 total: totalQuestions,
             })
             // Уведомляем игроков что вопрос закрыт и нужно ждать следующий
-            request.server.io.emit('game:questionClosed', {
+            request.server.io.to(gameRoom).emit('game:questionClosed', {
                 gameId,
                 questionId: null, // Старый вопрос закрыт
                 winner: null,
             })
         } else {
-            request.server.io.emit('game:finished', { gameId })
+            request.server.io.to(gameRoom).emit('game:finished', { gameId })
             finished = true
         }
 

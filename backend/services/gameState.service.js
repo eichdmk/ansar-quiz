@@ -143,7 +143,8 @@ export function emitQuestion(io, gameId, payload) {
   if (!io || !payload) {
     return
   }
-  io.emit('game:questionOpened', {
+  const gameRoom = `game:${gameId}`
+  io.to(gameRoom).emit('game:questionOpened', {
     gameId,
     question: payload.question,
     index: payload.index,
