@@ -35,11 +35,25 @@ function PlayerJoin() {
   const { isLoading, isSuccess } = useAsyncStatus(status)
   const socket = useSocket()
 
+  const location = useLocation()
+  const searchParams = new URLSearchParams(location.search)
+  const gameIdFromUrl = searchParams.get('gameId') || ''
+
   const [form, setForm] = useState({
-    gameId: '',
+    gameId: gameIdFromUrl,
     username: '',
     groupName: '',
   })
+
+  // Обновляем gameId если он изменился в URL
+  useEffect(() => {
+    if (gameIdFromUrl && gameIdFromUrl !== form.gameId) {
+      setForm((prev) => ({
+        ...prev,
+        gameId: gameIdFromUrl,
+      }))
+    }
+  }, [gameIdFromUrl, form.gameId])
 
   const avatarPalette = useMemo(
     () => ['5A6FF1', 'FF7F57', '33B679', 'A65DEB', 'FFBA08', '00B4D8'],

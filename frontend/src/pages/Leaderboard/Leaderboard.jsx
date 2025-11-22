@@ -4,6 +4,7 @@ import { fetchPlayers } from '../../api/players.js'
 import { fetchGames } from '../../api/games.js'
 import { fetchQuestions } from '../../api/questions.js'
 import resolveImageUrl from '../../utils/resolveImageUrl.js'
+import QRCodeDisplay from '../../components/QRCodeDisplay.jsx'
 import styles from './Leaderboard.module.css'
 
 function Leaderboard() {
@@ -23,6 +24,7 @@ function Leaderboard() {
   const [queue, setQueue] = useState([])
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(null) // 0-based
   const [totalQuestions, setTotalQuestions] = useState(null)
+  const [showQRModal, setShowQRModal] = useState(false)
 
   useEffect(() => {
     setGamesLoading(true)
@@ -476,6 +478,26 @@ function Leaderboard() {
     setCountdownValue(null)
   }, [selectedGameId])
 
+  // Закрытие модального окна по ESC
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape' && showQRModal) {
+        setShowQRModal(false)
+      }
+    }
+
+    if (showQRModal) {
+      document.addEventListener('keydown', handleEscKey)
+      // Блокируем прокрутку фона при открытом модальном окне
+      document.body.style.overflow = 'hidden'
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscKey)
+      document.body.style.overflow = 'unset'
+    }
+  }, [showQRModal])
+
   const placementBadges = ['🥇', '🥈', '🥉']
   const placementStyles = [
     {
@@ -605,6 +627,22 @@ function Leaderboard() {
                 </span>
                 <span className={styles.progressTotal}>/ {totalQuestions}</span>
               </div>
+          )}
+          {selectedGameId && (
+            <button
+              type="button"
+              className={styles.qrCodeButton}
+              onClick={() => setShowQRModal(true)}
+              title="Показать QR-код для подключения"
+            >
+              <svg className={styles.qrIcon} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" />
+                <rect x="14" y="3" width="7" height="7" />
+                <rect x="14" y="14" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" />
+              </svg>
+              QR-код
+            </button>
           )}
           <div className={styles.gameSelector}>
             <label htmlFor="game-select">Выберите игру:</label>
@@ -794,6 +832,30 @@ function Leaderboard() {
           </div>
         )}
       </div>
+
+      {showQRModal && selectedGameId && (
+        <div className={styles.modalOverlay} onClick={() => setShowQRModal(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>QR-код для подключения</h3>
+              <button
+                type="button"
+                className={styles.modalCloseButton}
+                onClick={() => setShowQRModal(false)}
+                aria-label="Закрыть"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <QRCodeDisplay gameId={selectedGameId} size={400} />
+            </div>
+          </div>
+        </div>
+      )}
     </div >
   )
 }

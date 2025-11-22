@@ -65,6 +65,34 @@
   }
 }
 
+.qrCodeButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(33, 150, 243, 0.26);
+  background: #ffffff;
+  color: #2196f3;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.qrCodeButton:hover {
+  background: rgba(33, 150, 243, 0.08);
+  border-color: rgba(33, 150, 243, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.16);
+}
+
+.qrIcon {
+  width: 20px;
+  height: 20px;
+}
+
 .gameSelector label {
   font-size: 14px;
   color: #2f4c6a;
@@ -409,6 +437,112 @@
   box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
 }
 
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 56, 95, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+
+.modalContent {
+  background: #ffffff;
+  border-radius: 24px;
+  box-shadow: 0 32px 64px rgba(15, 56, 95, 0.32);
+  max-width: 500px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  animation: modalFadeIn 0.2s ease;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 28px;
+  border-bottom: 1px solid rgba(33, 150, 243, 0.14);
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #0f3f71;
+}
+
+.modalCloseButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(33, 150, 243, 0.1);
+  color: #1a2b4c;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.modalCloseButton:hover {
+  background: rgba(33, 150, 243, 0.2);
+  transform: rotate(90deg);
+}
+
+.modalCloseButton:active {
+  transform: rotate(90deg) scale(0.95);
+}
+
+.modalBody {
+  padding: 32px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.modalBody :global(.qrCodeContainer) {
+  width: 100%;
+  max-width: 500px;
+}
+
+.modalBody :global(.qrCodeWrapper) {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.modalBody :global(.qrCode) {
+  width: 100% !important;
+  height: auto !important;
+  max-width: 400px;
+  max-height: 400px;
+}
+
 @media (max-width: 640px) {
   .board {
     padding: 28px 22px;
@@ -426,6 +560,11 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+  }
+
+  .qrCodeButton {
+    width: 100%;
+    justify-content: center;
   }
 
   .gameSelector select {
@@ -449,5 +588,19 @@
 
   .queueSection {
     min-width: 100%;
+  }
+
+  .modalContent {
+    max-width: 100%;
+    margin: 10px;
+    border-radius: 20px;
+  }
+
+  .modalHeader {
+    padding: 20px 24px;
+  }
+
+  .modalBody {
+    padding: 24px 20px;
   }
 }
