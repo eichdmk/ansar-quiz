@@ -744,8 +744,9 @@ function Dashboard() {
                         }
                       }
                       
-                      // Для вопросов с вариантами или если вопрос не в эфире, показываем обычную очередь
-                      // НО только если это НЕ устный вопрос (чтобы не дублировать панельку оценки)
+                      // Для вопросов с вариантами показываем очередь
+                      // Результаты (✅/❌) определяются автоматически системой при отправке ответа
+                      // Админ может только пропустить игрока (исключить из текущего раунда)
                       if (!isVerbalQuestion && queue.length > 0) {
                         return (
                           <div className={styles.answerStats}>
@@ -758,13 +759,18 @@ function Dashboard() {
                                   {item.groupName && (
                                     <span className={styles.queueGroupName}>({item.groupName})</span>
                                   )}
+                                  {/* Показываем автоматически определенный результат */}
                                   {item.isCorrect === true && (
                                     <span className={styles.queueStatusCorrect}>✓ Правильно</span>
                                   )}
                                   {item.isCorrect === false && (
                                     <span className={styles.queueStatusWrong}>✗ Неправильно</span>
                                   )}
-                                  {item.isCorrect === null && item.isCorrect !== false && item.isCorrect !== true && (
+                                  {/* Кнопка пропуска доступна для:
+                                      - Игроков, которые еще не ответили (isCorrect === null)
+                                      - Игроков, которые ответили неправильно (isCorrect === false)
+                                      Это позволяет админу исключить игрока из текущего раунда */}
+                                  {(item.isCorrect === null || item.isCorrect === false) && (
                                     <button
                                       type="button"
                                       className={styles.secondaryButton}

@@ -1096,6 +1096,27 @@ export async function skipPlayerByAdmin(request, reply) {
       return
     }
 
+    // Проверяем тип вопроса для правильной обработки
+    const questionResult = await client.query(
+      'SELECT id, question_type FROM questions WHERE id = $1',
+      [preparedQuestionId],
+    )
+    if (questionResult.rowCount === 0) {
+      await client.query('ROLLBACK')
+      reply.code(404).send({ message: 'Вопрос не найден' })
+      return
+    }
+    const question = questionResult.rows[0]
+    const questionType = question.question_type || 'multiple_choice'
+    const isVerbalQuestion = questionType === 'verbal'
+
+    // Проверяем, что вопрос не закрыт (пропуск возможен только для открытых вопросов)
+    if (game.is_question_closed) {
+      await client.query('ROLLBACK')
+      reply.code(409).send({ message: 'Вопрос уже закрыт, пропуск невозможен' })
+      return
+    }
+
     // Проверяем, что игрок в очереди и активен
     const queueResult = await client.query(
       `SELECT aq.id, aq.position 
@@ -1110,11 +1131,18 @@ export async function skipPlayerByAdmin(request, reply) {
       return
     }
 
-    // Деактивируем игрока в очереди
+    // Для устных вопросов: если игрок отправил ответ, но он еще не оценен, это нормально
+    // Просто пропускаем игрока без влияния на статус ответа
+    // Для вопросов с вариантами: пропуск работает независимо от того, ответил ли игрок
+    
+    // Деактивируем игрока в очереди (исключаем из текущего раунда)
     await client.query(
       'UPDATE answer_queue SET is_active = FALSE WHERE id = $1',
       [queueResult.rows[0].id],
     )
+
+    // ВАЖНО: Вопрос остается открытым (is_question_closed не меняется)
+    // Пропуск НЕ должен закрывать вопрос, только передавать ход следующему игроку
 
     await client.query('COMMIT')
 
@@ -1128,13 +1156,21 @@ export async function skipPlayerByAdmin(request, reply) {
         questionId: preparedQuestionId,
         playerId: preparedPlayerId,
         skippedByAdmin: true,
+        questionType: questionType,
       })
 
       // Передаем вопрос следующему в очереди
+      // Вопрос остается активным для остальных игроков
       await assignQuestionToNextInQueue(request.server.io, player.game_id, preparedQuestionId)
+      
+      // Обновляем очередь для отображения изменений
+      await emitQueueUpdate(request.server.io, player.game_id, preparedQuestionId)
     }
 
-    reply.send({ message: 'Ход игрока пропущен администратором' })
+    reply.send({ 
+      message: 'Ход игрока пропущен администратором',
+      questionRemainsOpen: true,
+    })
   } catch (error) {
     await client.query('ROLLBACK')
     request.log.error(error)
