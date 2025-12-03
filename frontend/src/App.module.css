@@ -41,6 +41,7 @@
   border-radius: 12px;
   background: linear-gradient(135deg, #2196f3, #1c7ed6);
   color: #ffffff;
+  text-decoration: none;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;

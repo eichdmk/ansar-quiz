@@ -1,4 +1,5 @@
 import styles from './App.module.css'
+import { Link } from 'react-router-dom'
 
 const ShieldIcon = () => (
   <svg
@@ -43,9 +44,9 @@ function App() {
           </span>
         </div>
 
-        <button type="button" className={styles.primaryButton}>
+        <Link to={'admin/login'} type="button" className={styles.primaryButton}>
           Войти как администратор
-        </button>
+        </Link>
       </header>
 
       <main className={styles.layout}>
